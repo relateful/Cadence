@@ -23,6 +23,8 @@ type Config struct {
 	AnalysisWorkers   int
 	AnalysisQueue     int
 	LogLevel          string
+	AudioCacheDir     string
+	AudioCacheGB      int
 	DeezerARL         string
 	DeezerHighQuality bool
 	DeezerMasterKey   string
@@ -71,6 +73,7 @@ func Load(get Lookup) (Config, error) {
 		Address:           str(get, "CADENCE_ADDRESS", "0.0.0.0:2333"),
 		Password:          str(get, "CADENCE_PASSWORD", ""),
 		LogLevel:          str(get, "CADENCE_LOG_LEVEL", "info"),
+		AudioCacheDir:     str(get, "CADENCE_AUDIO_CACHE_DIR", ""),
 		DeezerARL:         str(get, "DEEZER_ARL", ""),
 		DeezerHighQuality: flag(get, "DEEZER_HIGH_QUALITY", true),
 		DeezerMasterKey:   str(get, "DEEZER_MASTER_KEY", ""),
@@ -94,6 +97,7 @@ func Load(get Lookup) (Config, error) {
 		{"CADENCE_BITRATE", 96_000, &c.Bitrate},
 		{"CADENCE_ANALYSIS_WORKERS", 2, &c.AnalysisWorkers},
 		{"CADENCE_ANALYSIS_QUEUE", 32, &c.AnalysisQueue},
+		{"CADENCE_AUDIO_CACHE_GB", 20, &c.AudioCacheGB},
 	}
 	for _, i := range ints {
 		v, err := num(get, i.key, i.fallback)
@@ -121,6 +125,7 @@ func Load(get Lookup) (Config, error) {
 	}
 	c.BufferMs = max(1000, min(60_000, c.BufferMs))
 	c.UpdateInterval = max(250*time.Millisecond, c.UpdateInterval)
+	c.AudioCacheGB = max(1, min(1000, c.AudioCacheGB))
 	for _, s := range strings.Split(str(get, "CADENCE_SEARCH_ORDER", "applemusic,spotify,deezer"), ",") {
 		if s = strings.TrimSpace(s); s != "" {
 			c.SearchOrder = append(c.SearchOrder, s)

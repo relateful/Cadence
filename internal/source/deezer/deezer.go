@@ -59,10 +59,11 @@ type Deezer struct {
 	arl      string
 	formats  []mediaFormat
 	sessions sessionStore
-	urls     *cache.LRU[string, string]
+	urls     *cache.LRU[string, mediaLink]
 	isrc     *cache.LRU[string, source.Track]
 	heads    *cache.LRU[string, *head]
 	flights  headStore
+	disk     *diskCache
 	log      *slog.Logger
 }
 
@@ -75,7 +76,7 @@ func New(client *httpx.Client, arl string, highQuality bool, log *slog.Logger) *
 		http:    client,
 		arl:     arl,
 		formats: formats,
-		urls:    cache.New[string, string](50_000, mediaURLTTL),
+		urls:    cache.New[string, mediaLink](50_000, mediaURLTTL),
 		isrc:    cache.New[string, source.Track](200_000, isrcCacheTTL),
 		heads:   cache.New[string, *head](headEntries, headTTL),
 		flights: headStore{inflight: map[string]*headFlight{}},
@@ -168,21 +169,20 @@ func (d *Deezer) Open(ctx context.Context, t source.Track) (source.Stream, error
 	if dec == nil {
 		return source.Stream{}, source.Fail(source.SeverityFault, Name, "stream unavailable", ErrNoDecryptor)
 	}
+	if file, ok := d.openDisk(t.Identifier); ok {
+		return decrypted(dec, t.Identifier, file, file)
+	}
 	if h := d.cachedHead(ctx, t.Identifier); h != nil {
-		raw, closer := d.openFromHead(ctx, t.Identifier, h)
-		plain, err := dec.Decrypt(t.Identifier, raw)
-		if err != nil {
-			closer.Close()
-			return source.Stream{}, source.Fail(source.SeverityFault, Name, "decrypt failed", err)
-		}
-		return source.Stream{Body: decryptedBody{Reader: plain, closer: closer}, Format: codec.FormatMP3}, nil
+		raw, closer, total := d.openFromHead(ctx, t.Identifier, h)
+		raw, closer = d.teeToDisk(t.Identifier, h.link, raw, closer, total)
+		return decrypted(dec, t.Identifier, raw, closer)
 	}
 	metrics.Prefetch.Inc("miss")
 	u, err := d.mediaURL(ctx, t.Identifier)
 	if err != nil {
 		return source.Stream{}, err
 	}
-	req, err := http.NewRequest(http.MethodGet, u, nil)
+	req, err := http.NewRequest(http.MethodGet, u.URL, nil)
 	if err != nil {
 		return source.Stream{}, err
 	}
@@ -191,12 +191,18 @@ func (d *Deezer) Open(ctx context.Context, t source.Track) (source.Stream, error
 		d.urls.Delete(t.Identifier)
 		return source.Stream{}, source.Classify(Name, err)
 	}
-	plain, err := dec.Decrypt(t.Identifier, res.Body)
+	size := max(0, res.ContentLength)
+	raw, closer := d.teeToDisk(t.Identifier, u, res.Body, res.Body, func() int64 { return size })
+	return decrypted(dec, t.Identifier, raw, closer)
+}
+
+func decrypted(dec Decryptor, trackID string, raw io.Reader, closer io.Closer) (source.Stream, error) {
+	plain, err := dec.Decrypt(trackID, raw)
 	if err != nil {
-		res.Body.Close()
+		closer.Close()
 		return source.Stream{}, source.Fail(source.SeverityFault, Name, "decrypt failed", err)
 	}
-	return source.Stream{Body: decryptedBody{Reader: plain, closer: res.Body}, Format: codec.FormatMP3}, nil
+	return source.Stream{Body: decryptedBody{Reader: plain, closer: closer}, Format: codec.FormatMP3}, nil
 }
 
 func (d *Deezer) Search(ctx context.Context, query string) ([]source.Track, error) {

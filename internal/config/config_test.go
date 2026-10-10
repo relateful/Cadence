@@ -68,3 +68,14 @@ func TestMasterKeyIsReadAndWarnedWhenMissing(t *testing.T) {
 		t.Fatal("warned with key set")
 	}
 }
+
+func TestAudioCacheIsOffByDefaultAndClamped(t *testing.T) {
+	c, _ := Load(env(map[string]string{"CADENCE_PASSWORD": "s3cret"}))
+	if c.AudioCacheDir != "" || c.AudioCacheGB != 20 {
+		t.Fatalf("defaults %q %d", c.AudioCacheDir, c.AudioCacheGB)
+	}
+	c, _ = Load(env(map[string]string{"CADENCE_PASSWORD": "s3cret", "CADENCE_AUDIO_CACHE_DIR": "/var/cache/cadence", "CADENCE_AUDIO_CACHE_GB": "0"}))
+	if c.AudioCacheDir != "/var/cache/cadence" || c.AudioCacheGB != 1 {
+		t.Fatalf("set %q %d", c.AudioCacheDir, c.AudioCacheGB)
+	}
+}

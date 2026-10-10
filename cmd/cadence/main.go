@@ -14,6 +14,7 @@ import (
 	"github.com/greed/cadence/internal/analysis"
 	"github.com/greed/cadence/internal/api"
 	"github.com/greed/cadence/internal/audio"
+	"github.com/greed/cadence/internal/audiocache"
 	"github.com/greed/cadence/internal/codec"
 	"github.com/greed/cadence/internal/config"
 	"github.com/greed/cadence/internal/httpx"
@@ -91,6 +92,13 @@ func run() error {
 		deezer.RegisterDecryptor(dec)
 	}
 	dz := deezer.New(clients[deezer.Name], cfg.DeezerARL, cfg.DeezerHighQuality, log)
+	if cfg.AudioCacheDir != "" {
+		store, err := audiocache.Open(cfg.AudioCacheDir, int64(cfg.AudioCacheGB)<<30, log)
+		if err != nil {
+			return err
+		}
+		dz.UseAudioCache(store)
+	}
 	resolver := source.NewResolver(dz, cfg.SearchOrder, log,
 		applemusic.New(clients[applemusic.Name], cfg.AppleToken, cfg.AppleStorefront),
 		spotify.New(clients[spotify.Name], cfg.SpotifyID, cfg.SpotifySecret),

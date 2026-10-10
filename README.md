@@ -94,6 +94,8 @@ Everything is set through environment variables. See [`.env.example`](.env.examp
 | `CADENCE_SEARCH_ORDER` | `applemusic,spotify,deezer` | What plain-text searches query, in order |
 | `CADENCE_ANALYSIS_WORKERS` / `_QUEUE` | `2` / `32` | Offline analysis concurrency and queue bound |
 | `CADENCE_LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error` |
+| `CADENCE_AUDIO_CACHE_DIR` | off | Directory for the disk audio cache. Unset disables it |
+| `CADENCE_AUDIO_CACHE_GB` | `20` | Disk cache size cap (1–1000). Least recently played tracks are removed first |
 | `DEEZER_ARL` | | Deezer account session for full-length streams |
 | `DEEZER_MASTER_KEY` | | 16-byte key for Deezer's `BF_CBC_STRIPE` stream cipher. Without it nothing plays |
 | `DEEZER_HIGH_QUALITY` | `true` | Prefer 128 kbps MP3 over 64 kbps |
@@ -218,6 +220,7 @@ Like Spotify, Cadence keeps the first ~12 seconds of upcoming tracks ready, so p
 - Send the next tracks in your queue to `POST /v1/prefetch` and they'll start just as fast.
 - On play, a preloaded track starts decoding immediately while the rest is fetched in the background. A track that wasn't preloaded plays the normal way.
 - `cadence_prefetch_total{outcome}` on `/metrics` counts `queued`, `hit`, `miss`, `failed` and `dropped`.
+- **Disk cache.** With `CADENCE_AUDIO_CACHE_DIR` set, a track played a second time within 7 days, in any server, is saved to disk as it plays. From then on it starts and seeks with no Deezer requests at all. Only complete downloads are kept, and the cache never grows past `CADENCE_AUDIO_CACHE_GB`. See `cadence_audio_cache_total{outcome}`, `cadence_audio_cache_bytes` and `cadence_audio_cache_files`.
 
 ## Mixing
 

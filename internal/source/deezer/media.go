@@ -162,7 +162,12 @@ type mediaResponse struct {
 
 type mediaFormat struct{ Cipher, Format string }
 
-func (d *Deezer) mediaURL(ctx context.Context, trackID string) (string, error) {
+type mediaLink struct {
+	URL    string
+	Format string
+}
+
+func (d *Deezer) mediaURL(ctx context.Context, trackID string) (mediaLink, error) {
 	if u, ok := d.urls.Get(trackID); ok {
 		return u, nil
 	}
@@ -175,23 +180,23 @@ func (d *Deezer) mediaURL(ctx context.Context, trackID string) (string, error) {
 		}
 	}
 	if err != nil {
-		return "", err
+		return mediaLink{}, err
 	}
 	d.urls.Set(trackID, u)
 	return u, nil
 }
 
-func (d *Deezer) fetchMediaURL(ctx context.Context, trackID string) (string, error) {
+func (d *Deezer) fetchMediaURL(ctx context.Context, trackID string) (mediaLink, error) {
 	s, err := d.session(ctx)
 	if err != nil {
-		return "", err
+		return mediaLink{}, err
 	}
 	var songs songData
 	if err := d.gw(ctx, s, "song.getListData", map[string]any{"sng_ids": []string{trackID}}, &songs); err != nil {
-		return "", err
+		return mediaLink{}, err
 	}
 	if len(songs.Data) == 0 || songs.Data[0].TrackToken == "" {
-		return "", source.Fail(source.SeverityCommon, Name, "track has no stream token", nil)
+		return mediaLink{}, source.Fail(source.SeverityCommon, Name, "track has no stream token", nil)
 	}
 	formats := make([]map[string]string, 0, len(d.formats))
 	for _, f := range d.formats {
@@ -204,32 +209,32 @@ func (d *Deezer) fetchMediaURL(ctx context.Context, trackID string) (string, err
 	})
 	req, err := http.NewRequest(http.MethodPost, mediaURL, bytes.NewReader(payload))
 	if err != nil {
-		return "", err
+		return mediaLink{}, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	setEnglish(req)
 	body, err := d.http.Send(ctx, req)
 	if err != nil {
-		return "", err
+		return mediaLink{}, err
 	}
 	var mr mediaResponse
 	if err := json.Unmarshal(body, &mr); err != nil {
-		return "", err
+		return mediaLink{}, err
 	}
 	if len(mr.Data) == 0 {
-		return "", source.Fail(source.SeverityCommon, Name, "no media returned", nil)
+		return mediaLink{}, source.Fail(source.SeverityCommon, Name, "no media returned", nil)
 	}
 	if errs := mr.Data[0].Errors; len(errs) > 0 {
-		return "", source.Fail(source.SeveritySuspicious, Name, "media refused", fmt.Errorf("%d: %s", errs[0].Code, errs[0].Message))
+		return mediaLink{}, source.Fail(source.SeveritySuspicious, Name, "media refused", fmt.Errorf("%d: %s", errs[0].Code, errs[0].Message))
 	}
 	for _, m := range mr.Data[0].Media {
 		for _, src := range m.Sources {
 			if src.URL != "" {
-				return src.URL, nil
+				return mediaLink{URL: src.URL, Format: m.Format}, nil
 			}
 		}
 	}
-	return "", source.Fail(source.SeverityCommon, Name, "no stream url returned", nil)
+	return mediaLink{}, source.Fail(source.SeverityCommon, Name, "no stream url returned", nil)
 }
 
 func setEnglish(req *http.Request) {

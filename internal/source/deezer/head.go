@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -23,7 +25,7 @@ const (
 )
 
 type head struct {
-	url      string
+	link     mediaLink
 	data     []byte
 	complete bool
 }
@@ -93,7 +95,7 @@ func (d *Deezer) fetchHead(ctx context.Context, trackID string) (*head, error) {
 	if err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequest(http.MethodGet, u, nil)
+	req, err := http.NewRequest(http.MethodGet, u.URL, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -101,7 +103,7 @@ func (d *Deezer) fetchHead(ctx context.Context, trackID string) (*head, error) {
 	res, err := d.http.Stream(ctx, req)
 	if err != nil {
 		if httpx.IsStatus(err, http.StatusRequestedRangeNotSatisfiable) {
-			return &head{url: u, complete: true}, nil
+			return &head{link: u, complete: true}, nil
 		}
 		d.urls.Delete(trackID)
 		return nil, source.Classify(Name, err)
@@ -112,11 +114,11 @@ func (d *Deezer) fetchHead(ctx context.Context, trackID string) (*head, error) {
 	switch {
 	case err == nil:
 	case errors.Is(err, io.EOF), errors.Is(err, io.ErrUnexpectedEOF):
-		return &head{url: u, data: buf[:n], complete: true}, nil
+		return &head{link: u, data: buf[:n], complete: true}, nil
 	default:
 		return nil, source.Classify(Name, err)
 	}
-	return &head{url: u, data: buf}, nil
+	return &head{link: u, data: buf}, nil
 }
 
 type tailStream struct {
@@ -124,6 +126,7 @@ type tailStream struct {
 	cancel context.CancelFunc
 	mu     sync.Mutex
 	body   io.ReadCloser
+	total  int64
 	err    error
 	closed bool
 }
@@ -132,8 +135,9 @@ func (d *Deezer) openTail(ctx context.Context, trackID string, h *head) *tailStr
 	ctx, cancel := context.WithCancel(ctx)
 	t := &tailStream{ready: make(chan struct{}), cancel: cancel}
 	go func() {
-		body, err := d.fetchTail(ctx, trackID, h)
+		body, total, err := d.fetchTail(ctx, trackID, h)
 		t.mu.Lock()
+		t.total = total
 		if t.closed && body != nil {
 			body.Close()
 			body = nil
@@ -145,49 +149,64 @@ func (d *Deezer) openTail(ctx context.Context, trackID string, h *head) *tailStr
 	return t
 }
 
-func (d *Deezer) fetchTail(ctx context.Context, trackID string, h *head) (io.ReadCloser, error) {
+func (d *Deezer) fetchTail(ctx context.Context, trackID string, h *head) (io.ReadCloser, int64, error) {
 	offset := int64(len(h.data))
-	body, err := d.rangeFrom(ctx, h.url, offset)
+	body, total, err := d.rangeFrom(ctx, h.link.URL, offset)
 	if err == nil {
-		return body, nil
+		return body, total, nil
 	}
 	if ctx.Err() != nil {
-		return nil, ctx.Err()
+		return nil, 0, ctx.Err()
 	}
 	if !httpx.IsStatus(err, http.StatusForbidden) && !httpx.IsStatus(err, http.StatusGone) && !httpx.IsStatus(err, http.StatusNotFound) {
-		return nil, source.Classify(Name, err)
+		return nil, 0, source.Classify(Name, err)
 	}
 	d.heads.Delete(trackID)
 	d.urls.Delete(trackID)
 	fresh, uerr := d.mediaURL(ctx, trackID)
 	if uerr != nil {
-		return nil, uerr
+		return nil, 0, uerr
 	}
-	body, err = d.rangeFrom(ctx, fresh, offset)
+	if fresh.Format != h.link.Format {
+		return nil, 0, source.Fail(source.SeverityCommon, Name, "stream format changed mid-track", fmt.Errorf("cached start is %s, refreshed url is %s", h.link.Format, fresh.Format))
+	}
+	body, total, err = d.rangeFrom(ctx, fresh.URL, offset)
 	if err != nil {
-		return nil, source.Classify(Name, err)
+		return nil, 0, source.Classify(Name, err)
 	}
-	return body, nil
+	return body, total, nil
 }
 
-func (d *Deezer) rangeFrom(ctx context.Context, u string, offset int64) (io.ReadCloser, error) {
+func (d *Deezer) rangeFrom(ctx context.Context, u string, offset int64) (io.ReadCloser, int64, error) {
 	req, err := http.NewRequest(http.MethodGet, u, nil)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	req.Header.Set("Range", fmt.Sprintf("bytes=%d-", offset))
 	res, err := d.http.Stream(ctx, req)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	if res.StatusCode == http.StatusPartialContent {
-		return res.Body, nil
+		return res.Body, rangeTotal(res.Header.Get("Content-Range")), nil
 	}
 	if _, err := io.CopyN(io.Discard, res.Body, offset); err != nil {
 		res.Body.Close()
-		return nil, fmt.Errorf("skip cached head: %w", err)
+		return nil, 0, fmt.Errorf("skip cached head: %w", err)
 	}
-	return res.Body, nil
+	return res.Body, max(0, res.ContentLength), nil
+}
+
+func rangeTotal(header string) int64 {
+	_, total, ok := strings.Cut(header, "/")
+	if !ok {
+		return 0
+	}
+	n, err := strconv.ParseInt(strings.TrimSpace(total), 10, 64)
+	if err != nil || n < 0 {
+		return 0
+	}
+	return n
 }
 
 func (t *tailStream) Read(p []byte) (int, error) {
@@ -196,6 +215,15 @@ func (t *tailStream) Read(p []byte) (int, error) {
 		return 0, t.err
 	}
 	return t.body.Read(p)
+}
+
+func (t *tailStream) Total() int64 {
+	select {
+	case <-t.ready:
+		return t.total
+	default:
+		return 0
+	}
 }
 
 func (t *tailStream) Close() error {
@@ -210,14 +238,15 @@ func (t *tailStream) Close() error {
 	return nil
 }
 
-func (d *Deezer) openFromHead(ctx context.Context, trackID string, h *head) (io.Reader, io.Closer) {
+func (d *Deezer) openFromHead(ctx context.Context, trackID string, h *head) (io.Reader, io.Closer, func() int64) {
 	metrics.Prefetch.Inc("hit")
 	cached := bytes.NewReader(h.data)
 	if h.complete {
-		return cached, noClose{}
+		size := int64(len(h.data))
+		return cached, noClose{}, func() int64 { return size }
 	}
 	tail := d.openTail(ctx, trackID, h)
-	return io.MultiReader(cached, tail), tail
+	return io.MultiReader(cached, tail), tail, tail.Total
 }
 
 type noClose struct{}

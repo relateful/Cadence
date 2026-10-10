@@ -61,7 +61,7 @@ func newTestDeezer(t *testing.T, server *cdn, plain []byte) (*Deezer, source.Tra
 		t.Fatal(err)
 	}
 	d := New(client, "", true, log)
-	d.urls.Set(track.Identifier, srv.URL+"/track.mp3")
+	d.urls.Set(track.Identifier, mediaLink{URL: srv.URL + "/track.mp3", Format: formatMP3High})
 	return d, track
 }
 
