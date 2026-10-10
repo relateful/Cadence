@@ -2,6 +2,7 @@ package source
 
 import (
 	"math"
+	"sort"
 	"strings"
 	"unicode"
 )
@@ -100,4 +101,22 @@ func BestMatch(target Track, candidates []Track) (Track, bool) {
 		}
 	}
 	return best, found
+}
+
+func unwantedMarkers(query string, t Track) int {
+	want, n := markers(query), 0
+	for m := range markers(t.Title) {
+		if !want[m] {
+			n++
+		}
+	}
+	return n
+}
+
+func RankForQuery(query string, tracks []Track) []Track {
+	out := append([]Track(nil), tracks...)
+	sort.SliceStable(out, func(i, j int) bool {
+		return unwantedMarkers(query, out[i]) < unwantedMarkers(query, out[j])
+	})
+	return out
 }

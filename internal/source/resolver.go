@@ -176,7 +176,7 @@ func (r *Resolver) search(ctx context.Context, s Source, query string) LoadResul
 	if err != nil {
 		return LoadResult{Type: LoadError, Error: Classify(s.Name(), err)}
 	}
-	return Results(tracks)
+	return Results(RankForQuery(query, tracks))
 }
 
 func (r *Resolver) Playable(ctx context.Context, t Track) (Track, error) {

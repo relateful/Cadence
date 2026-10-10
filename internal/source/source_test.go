@@ -174,3 +174,23 @@ func TestYouTubeSearchPrefixesSearchTheAudioSource(t *testing.T) {
 		}
 	}
 }
+
+func TestSearchDemotesVersionsTheQueryDidNotAskFor(t *testing.T) {
+	in := []Track{
+		{Identifier: "k", Title: "Let The Light In (Instrumental Karaoke Version)"},
+		{Identifier: "o", Title: "Let The Light In"},
+		{Identifier: "l", Title: "Let The Light In (Live)"},
+		{Identifier: "o2", Title: "Let The Light In (feat. Father John Misty)"},
+	}
+	got := RankForQuery("let the light in", in)
+	order := ""
+	for _, t := range got {
+		order += t.Identifier + ","
+	}
+	if order != "o,o2,l,k," {
+		t.Fatalf("order %s", order)
+	}
+	if RankForQuery("let the light in karaoke", in)[0].Identifier != "k" {
+		t.Fatal("asking for karaoke should keep karaoke first")
+	}
+}
