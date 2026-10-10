@@ -64,6 +64,7 @@ type Deezer struct {
 	heads    *cache.LRU[string, *head]
 	flights  headStore
 	disk     *diskCache
+	layouts  *cache.LRU[string, mp3Layout]
 	log      *slog.Logger
 }
 
@@ -80,6 +81,7 @@ func New(client *httpx.Client, arl string, highQuality bool, log *slog.Logger) *
 		isrc:    cache.New[string, source.Track](200_000, isrcCacheTTL),
 		heads:   cache.New[string, *head](headEntries, headTTL),
 		flights: headStore{inflight: map[string]*headFlight{}},
+		layouts: newLayoutCache(),
 		log:     log.With("source", Name),
 	}
 }

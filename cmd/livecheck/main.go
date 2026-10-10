@@ -41,6 +41,9 @@ func run() error {
 	dz := deezer.New(client, cfg.DeezerARL, cfg.DeezerHighQuality, log)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
+	if len(os.Args) > 1 && os.Args[1] == "-seek" {
+		return seekCheck(ctx, dz)
+	}
 	if len(os.Args) > 1 {
 		return bench(ctx, dz, os.Args[1:])
 	}
@@ -132,5 +135,80 @@ func bench(ctx context.Context, dz *deezer.Deezer, queries []string) error {
 		}
 		fmt.Printf("%s\t%d\t%d\t%d\t%d\n", q, t1.Sub(t0).Milliseconds(), t2.Sub(t1).Milliseconds(), t3.Sub(t2).Milliseconds(), t3.Sub(t0).Milliseconds())
 	}
+	return nil
+}
+
+func decodeAll(r io.Reader) ([]int16, error) {
+	pcm, err := codec.Decode(codec.FormatMP3, r)
+	if err != nil {
+		return nil, err
+	}
+	var out []int16
+	buf := make([]int16, 8192)
+	for {
+		n, err := pcm.Read(buf)
+		out = append(out, buf[:n]...)
+		if errors.Is(err, io.EOF) {
+			return out, nil
+		}
+		if err != nil {
+			return out, err
+		}
+	}
+}
+
+func seekCheck(ctx context.Context, dz *deezer.Deezer) error {
+	tracks, err := dz.Search(ctx, "daft punk one more time")
+	if err != nil || len(tracks) == 0 {
+		return fmt.Errorf("search: %v", err)
+	}
+	t := tracks[0]
+	stream, err := dz.Open(ctx, t)
+	if err != nil {
+		return err
+	}
+	full, err := decodeAll(stream.Body)
+	stream.Body.Close()
+	if err != nil {
+		return fmt.Errorf("full decode: %w", err)
+	}
+	fmt.Printf("track:    %s - %s, %d samples decoded in full\n", t.Author, t.Title, len(full)/2)
+	for _, ms := range []int64{15_000, 61_234, 180_000} {
+		start := time.Now()
+		s, err := dz.OpenAt(ctx, t, ms)
+		if err != nil {
+			return err
+		}
+		pcm, err := codec.Decode(s.Format, s.Body)
+		if err != nil {
+			s.Body.Close()
+			return err
+		}
+		want := 2 * 44100 * 5
+		got := make([]int16, 0, want)
+		buf := make([]int16, 4096)
+		for len(got) < want {
+			n, err := pcm.Read(buf)
+			got = append(got, buf[:n]...)
+			if err != nil {
+				break
+			}
+		}
+		took := time.Since(start)
+		s.Body.Close()
+		if s.StartSample == 0 {
+			fmt.Printf("seek %6dms: fell back to a full stream (%s)\n", ms, took.Round(time.Millisecond))
+			continue
+		}
+		off := int(s.StartSample) * 2
+		skip := 2 * 1152 * 4
+		for i := skip; i < len(got); i++ {
+			if off+i >= len(full) || got[i] != full[off+i] {
+				return fmt.Errorf("seek %dms: sample %d differs from the full decode", ms, i/2)
+			}
+		}
+		fmt.Printf("seek %6dms: start sample %d, %d samples bit-exact after the warm-up frames, opened in %s\n", ms, s.StartSample, (len(got)-skip)/2, took.Round(time.Millisecond))
+	}
+	fmt.Println("result:   range seeks match the full decode")
 	return nil
 }

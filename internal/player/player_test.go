@@ -35,7 +35,7 @@ func tone(seconds float64, hz float64) []byte {
 }
 
 func opener(lengths map[string]float64) Opener {
-	return func(_ context.Context, t source.Track) (source.Stream, error) {
+	return func(_ context.Context, t source.Track, _ int64) (source.Stream, error) {
 		secs, ok := lengths[t.Identifier]
 		if !ok {
 			return source.Stream{}, errors.New("boom")

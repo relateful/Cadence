@@ -21,8 +21,13 @@ type ISRCLookup interface {
 }
 
 type Stream struct {
-	Body   io.ReadCloser
-	Format codec.Format
+	Body        io.ReadCloser
+	Format      codec.Format
+	StartSample int64
+}
+
+type Seekable interface {
+	OpenAt(ctx context.Context, t Track, startMs int64) (Stream, error)
 }
 
 type Playable interface {

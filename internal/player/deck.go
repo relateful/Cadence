@@ -28,7 +28,7 @@ type chunk struct {
 	rate    int
 }
 
-type Opener func(ctx context.Context, t source.Track) (source.Stream, error)
+type Opener func(ctx context.Context, t source.Track, startMs int64) (source.Stream, error)
 
 type Tap interface {
 	Feed(frame *audio.Frame)
@@ -122,7 +122,7 @@ func (d *Deck) produce(parent context.Context, open Opener, startMs int64) {
 		cancel()
 	})
 	defer timer.Stop()
-	stream, err := open(ctx, d.Playable)
+	stream, err := open(ctx, d.Playable, startMs)
 	if err != nil {
 		if parent.Err() == nil {
 			d.fail(source.Classify(d.Playable.Source, err))
@@ -142,7 +142,7 @@ func (d *Deck) produce(parent context.Context, open Opener, startMs int64) {
 	}
 	rate := pcm.SampleRate()
 	skip := startMs * int64(rate) / 1000
-	var index int64
+	index := stream.StartSample
 	for {
 		buf := make([]int16, decodeChunkSize)
 		n, rerr := pcm.Read(buf)

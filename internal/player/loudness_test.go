@@ -63,7 +63,9 @@ func TestMeasuredTrackIsLevelledAndUnmeasuredIsQueued(t *testing.T) {
 	if queued.Load() != 1 {
 		t.Fatalf("unmeasured track queued %d times", queued.Load())
 	}
-	boosted := levelOf(t, func(source.Track, source.Track) (Loudness, bool) { return Loudness{IntegratedLufs: -20, PeakAmplitude: 0.25}, true }, nil)
+	boosted := levelOf(t, func(source.Track, source.Track) (Loudness, bool) {
+		return Loudness{IntegratedLufs: -20, PeakAmplitude: 0.25}, true
+	}, nil)
 	if ratio := boosted / unity; math.Abs(ratio-math.Pow(10, 6.0/20)) > 0.05 {
 		t.Fatalf("boost ratio %.3f, want about 2.0", ratio)
 	}

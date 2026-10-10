@@ -55,6 +55,7 @@ var (
 	VoiceClose Labeled
 	Prefetch   Labeled
 	AudioCache Labeled
+	Seek       Labeled
 
 	AudioCacheBytes Counter
 	AudioCacheFiles Counter
@@ -86,6 +87,7 @@ func Write(w io.Writer, gauges []Gauge) {
 	labeled(w, "cadence_voice_closes_total", "Voice gateway closes by code.", "code", &VoiceClose)
 	labeled(w, "cadence_prefetch_total", "Track-start prefetch outcomes.", "outcome", &Prefetch)
 	labeled(w, "cadence_audio_cache_total", "Disk audio cache outcomes.", "outcome", &AudioCache)
+	labeled(w, "cadence_seek_total", "How seeks were served.", "outcome", &Seek)
 }
 
 func labeled(w io.Writer, name, help, label string, l *Labeled) {

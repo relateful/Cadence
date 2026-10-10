@@ -43,11 +43,15 @@ func (s *StripeDecryptor) trackKey(trackID string) []byte {
 }
 
 func (s *StripeDecryptor) Decrypt(trackID string, encrypted io.Reader) (io.Reader, error) {
+	return s.DecryptFrom(trackID, encrypted, 0)
+}
+
+func (s *StripeDecryptor) DecryptFrom(trackID string, encrypted io.Reader, firstChunk int) (io.Reader, error) {
 	block, err := blowfish.NewCipher(s.trackKey(trackID))
 	if err != nil {
 		return nil, err
 	}
-	return &stripeReader{src: encrypted, block: block, chunk: make([]byte, stripeChunk)}, nil
+	return &stripeReader{src: encrypted, block: block, chunk: make([]byte, stripeChunk), index: firstChunk}, nil
 }
 
 type stripeReader struct {
