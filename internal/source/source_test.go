@@ -194,3 +194,49 @@ func TestSearchDemotesVersionsTheQueryDidNotAskFor(t *testing.T) {
 		t.Fatal("asking for karaoke should keep karaoke first")
 	}
 }
+
+type fakeFallback struct {
+	results []Track
+	opened  atomic.Int32
+}
+
+func (f *fakeFallback) Name() string                                        { return "fb" }
+func (f *fakeFallback) SearchPrefix() string                                { return "fbsearch:" }
+func (f *fakeFallback) MatchesURL(string) bool                              { return false }
+func (f *fakeFallback) LoadURL(context.Context, string) (LoadResult, error) { return Empty(), nil }
+func (f *fakeFallback) Track(context.Context, string) (Track, error)        { return Track{}, errors.New("no") }
+func (f *fakeFallback) Search(context.Context, string) ([]Track, error)     { return f.results, nil }
+func (f *fakeFallback) Warm(context.Context, Track)                         {}
+func (f *fakeFallback) Open(context.Context, Track) (Stream, error) {
+	f.opened.Add(1)
+	return Stream{}, nil
+}
+
+func TestFallbackAnswersOnlyWhenThePrimaryHasNothing(t *testing.T) {
+	fbTrack := Track{Source: "fb", Identifier: "9", Title: "Rare Song", Author: "Indie", DurationMs: 200000}
+	primary := &fakeAudio{}
+	fb := &fakeFallback{results: []Track{fbTrack}}
+	r := NewResolver(primary, nil, logger())
+	r.UseFallback(fb)
+
+	if res := r.Load(context.Background(), "fksearch:rare song"); res.Type != LoadSearch || res.Tracks[0].Source != "fb" {
+		t.Fatalf("empty primary search: %+v", res)
+	}
+	spotify := Track{Source: "mirror", Identifier: "s1", Title: "Rare Song", Author: "Indie", DurationMs: 201000}
+	got, err := r.Playable(context.Background(), spotify)
+	if err != nil || got.Source != "fb" {
+		t.Fatalf("mirror to fallback: %+v %v", got, err)
+	}
+	if _, err := r.Open(context.Background(), got, 0); err != nil || fb.opened.Load() != 1 {
+		t.Fatalf("open routed wrong: %v opened=%d", err, fb.opened.Load())
+	}
+
+	primary.results = []Track{{Source: "fake", Identifier: "1", Title: "Common Song", Author: "Band", DurationMs: 180000}}
+	if res := r.Load(context.Background(), "fksearch:common song"); res.Tracks[0].Source != "fake" {
+		t.Fatalf("fallback used although the primary had results: %+v", res)
+	}
+	mirrored, err := r.Playable(context.Background(), Track{Source: "mirror", Identifier: "s2", Title: "Common Song", Author: "Band", DurationMs: 181000})
+	if err != nil || mirrored.Source != "fake" {
+		t.Fatalf("primary should win the mirror: %+v %v", mirrored, err)
+	}
+}

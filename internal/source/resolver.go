@@ -41,6 +41,7 @@ type Resolver struct {
 	ordered     []Source
 	searchOrder []string
 	audio       Playable
+	fallback    Playable
 	mirrors     *cache.LRU[string, mirrorEntry]
 	loads       *cache.LRU[string, LoadResult]
 	mu          sync.Mutex
@@ -173,6 +174,15 @@ func (r *Resolver) search(ctx context.Context, s Source, query string) LoadResul
 		return Empty()
 	}
 	tracks, err := s.Search(ctx, query)
+	if (err != nil || len(tracks) == 0) && r.fallback != nil && r.audio != nil && s.Name() == r.audio.Name() {
+		if fb, fbErr := r.fallback.Search(ctx, query); fbErr == nil && len(fb) > 0 {
+			metrics.Fallback.Inc("search")
+			r.log.Info("search answered by the fallback source", "query", query, "fallback", r.fallback.Name(), "primaryError", err)
+			return Results(RankForQuery(query, fb))
+		} else if fbErr != nil {
+			r.log.Warn("fallback search failed", "query", query, "fallback", r.fallback.Name(), "error", fbErr)
+		}
+	}
 	if err != nil {
 		return LoadResult{Type: LoadError, Error: Classify(s.Name(), err)}
 	}
@@ -183,7 +193,7 @@ func (r *Resolver) Playable(ctx context.Context, t Track) (Track, error) {
 	if r.audio == nil {
 		return Track{}, Fail(SeverityFault, "", "no audio source is configured", nil)
 	}
-	if t.Source == r.audio.Name() {
+	if t.Source == r.audio.Name() || (r.fallback != nil && t.Source == r.fallback.Name()) {
 		return t, nil
 	}
 	key := t.Key()
@@ -238,11 +248,28 @@ func (r *Resolver) mirror(ctx context.Context, t Track) (Track, error) {
 			return Track{}, ctx.Err()
 		}
 	}
-	candidates, err := r.audio.Search(ctx, strings.TrimSpace(t.Title+" "+t.Author))
+	query := strings.TrimSpace(t.Title + " " + t.Author)
+	candidates, err := r.audio.Search(ctx, query)
+	var hit Track
+	ok := false
+	if err == nil {
+		hit, ok = BestMatch(t, candidates)
+	}
+	if !ok && r.fallback != nil && t.Source != r.fallback.Name() {
+		if fbCandidates, fbErr := r.fallback.Search(ctx, query); fbErr == nil {
+			if fbHit, found := BestMatch(t, fbCandidates); found {
+				metrics.Fallback.Inc("mirror")
+				r.log.Info("mirrored to the fallback source", "track", key, "fallback", r.fallback.Name(), "match", fbHit.Key())
+				r.mirrors.Set(key, mirrorEntry{track: fbHit, ok: true})
+				return fbHit, nil
+			}
+		} else {
+			r.log.Warn("fallback search failed", "track", key, "fallback", r.fallback.Name(), "error", fbErr)
+		}
+	}
 	if err != nil {
 		return Track{}, Classify(r.audio.Name(), err)
 	}
-	hit, ok := BestMatch(t, candidates)
 	if !ok {
 		r.mirrors.SetFor(key, mirrorEntry{}, missCacheTTL)
 		return Track{}, Fail(SeverityCommon, t.Source, fmt.Sprintf("no matching recording on %s", r.audio.Name()), nil)
@@ -253,6 +280,35 @@ func (r *Resolver) mirror(ctx context.Context, t Track) (Track, error) {
 
 func (r *Resolver) Audio() Playable {
 	return r.audio
+}
+
+func (r *Resolver) UseFallback(p Playable) {
+	r.fallback = p
+	if _, exists := r.sources[p.Name()]; !exists {
+		r.sources[p.Name()] = p
+		r.ordered = append(r.ordered, p)
+	}
+}
+
+func (r *Resolver) playableFor(t Track) (Playable, error) {
+	switch {
+	case r.audio != nil && t.Source == r.audio.Name():
+		return r.audio, nil
+	case r.fallback != nil && t.Source == r.fallback.Name():
+		return r.fallback, nil
+	}
+	return nil, Fail(SeverityFault, t.Source, "no audio source plays this track", nil)
+}
+
+func (r *Resolver) Open(ctx context.Context, t Track, startMs int64) (Stream, error) {
+	p, err := r.playableFor(t)
+	if err != nil {
+		return Stream{}, err
+	}
+	if seeker, ok := p.(Seekable); ok && startMs > 0 {
+		return seeker.OpenAt(ctx, t, startMs)
+	}
+	return p.Open(ctx, t)
 }
 
 func (r *Resolver) Enqueue(t Track) bool {
@@ -293,5 +349,7 @@ func (r *Resolver) Prefetch(ctx context.Context, t Track) {
 		r.log.Warn("prefetch failed", "track", t.Key(), "error", err)
 		return
 	}
-	r.audio.Warm(ctx, playable)
+	if p, err := r.playableFor(playable); err == nil {
+		p.Warm(ctx, playable)
+	}
 }

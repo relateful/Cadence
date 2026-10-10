@@ -23,6 +23,7 @@ import (
 	"github.com/greed/cadence/internal/source"
 	"github.com/greed/cadence/internal/source/applemusic"
 	"github.com/greed/cadence/internal/source/deezer"
+	"github.com/greed/cadence/internal/source/soundcloud"
 	"github.com/greed/cadence/internal/source/spotify"
 	"github.com/greed/cadence/internal/voice"
 )
@@ -78,7 +79,7 @@ func run() error {
 	}
 
 	clients := map[string]*httpx.Client{}
-	for name, proxy := range map[string]string{deezer.Name: cfg.DeezerProxy, spotify.Name: cfg.SpotifyProxy, applemusic.Name: cfg.AppleProxy} {
+	for name, proxy := range map[string]string{deezer.Name: cfg.DeezerProxy, spotify.Name: cfg.SpotifyProxy, applemusic.Name: cfg.AppleProxy, soundcloud.Name: cfg.SoundCloudProxy} {
 		c, err := httpx.New(name, proxy, log)
 		if err != nil {
 			return err
@@ -104,6 +105,9 @@ func run() error {
 		applemusic.New(clients[applemusic.Name], cfg.AppleToken, cfg.AppleStorefront),
 		spotify.New(clients[spotify.Name], cfg.SpotifyID, cfg.SpotifySecret),
 	)
+	if cfg.SoundCloudEnabled {
+		resolver.UseFallback(soundcloud.New(clients[soundcloud.Name], cfg.SoundCloudID, soundcloud.DefaultEndpoints))
+	}
 
 	registry := analysis.NewRegistry()
 	offline := analysis.NewOffline(registry, func(ctx context.Context, t source.Track) (source.Stream, error) {
@@ -111,7 +115,7 @@ func run() error {
 		if err != nil {
 			return source.Stream{}, err
 		}
-		return dz.Open(ctx, playable)
+		return resolver.Open(ctx, playable, 0)
 	}, cfg.AnalysisWorkers, cfg.AnalysisQueue, log)
 
 	deps := session.Deps{

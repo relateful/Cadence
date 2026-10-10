@@ -104,7 +104,9 @@ Everything is set through environment variables. See [`.env.example`](.env.examp
 | `SPOTIFY_CLIENT_ID` / `_SECRET` | | Spotify Web API credentials (metadata only) |
 | `APPLE_MUSIC_TOKEN` | scraped | Optional fixed developer token |
 | `APPLE_MUSIC_STOREFRONT` | `us` | Catalog storefront |
-| `DEEZER_PROXY`, `SPOTIFY_PROXY`, `APPLE_MUSIC_PROXY` | | Per-source HTTP proxy; a failed proxy falls back to direct for 60 s |
+| `SOUNDCLOUD_ENABLED` | `true` | Use SoundCloud when Deezer has no match |
+| `SOUNDCLOUD_CLIENT_ID` | scraped | Optional fixed SoundCloud client id |
+| `DEEZER_PROXY`, `SPOTIFY_PROXY`, `APPLE_MUSIC_PROXY`, `SOUNDCLOUD_PROXY` | | Per-source HTTP proxy; a failed proxy falls back to direct for 60 s |
 
 ## Sources
 
@@ -113,6 +115,7 @@ Everything is set through environment variables. See [`.env.example`](.env.examp
 | **Deezer** | `dzsearch:` / `dzisrc:` | tracks, albums, playlists, artists, short links | ✅ |
 | **Apple Music** | `amsearch:` | songs, albums, playlists, artists | Mirrored to Deezer |
 | **Spotify** | `spsearch:` | tracks, albums, playlists, `spotify:` URIs, short links | Mirrored to Deezer |
+| **SoundCloud** | `scsearch:` | tracks, sets, short links | ✅ fallback, used only when Deezer has no match |
 
 **How mirroring works.** When a Spotify or Apple track plays, Cadence takes its **ISRC**, the unique ID of a recording, and looks up that exact recording on Deezer. If there's no ISRC match, it falls back to a scored text search. That search penalizes remixes, live versions, sped-up versions and anything else that differs from what was requested, and rejects candidates whose length is off by more than 5 seconds. Matches are cached for 14 days and concurrent lookups are de-duplicated, so a song is resolved once.
 

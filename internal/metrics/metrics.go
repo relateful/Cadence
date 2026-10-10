@@ -56,6 +56,7 @@ var (
 	Prefetch   Labeled
 	AudioCache Labeled
 	Seek       Labeled
+	Fallback   Labeled
 
 	AudioCacheBytes Counter
 	AudioCacheFiles Counter
@@ -88,6 +89,7 @@ func Write(w io.Writer, gauges []Gauge) {
 	labeled(w, "cadence_prefetch_total", "Track-start prefetch outcomes.", "outcome", &Prefetch)
 	labeled(w, "cadence_audio_cache_total", "Disk audio cache outcomes.", "outcome", &AudioCache)
 	labeled(w, "cadence_seek_total", "How seeks were served.", "outcome", &Seek)
+	labeled(w, "cadence_fallback_total", "Requests answered by the fallback audio source.", "kind", &Fallback)
 }
 
 func labeled(w io.Writer, name, help, label string, l *Labeled) {

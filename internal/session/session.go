@@ -201,11 +201,7 @@ func (s *Session) Guild(id string, create bool) *Guild {
 }
 
 func (s *Session) open(ctx context.Context, t source.Track, startMs int64) (source.Stream, error) {
-	audio := s.deps.Resolver.Audio()
-	if seeker, ok := audio.(source.Seekable); ok && startMs > 0 {
-		return seeker.OpenAt(ctx, t, startMs)
-	}
-	return audio.Open(ctx, t)
+	return s.deps.Resolver.Open(ctx, t, startMs)
 }
 
 func (s *Session) Guilds() []*Guild {

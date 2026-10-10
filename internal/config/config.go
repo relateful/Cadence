@@ -37,6 +37,9 @@ type Config struct {
 	AppleToken        string
 	AppleStorefront   string
 	AppleProxy        string
+	SoundCloudEnabled bool
+	SoundCloudID      string
+	SoundCloudProxy   string
 }
 
 type Lookup func(string) (string, bool)
@@ -87,6 +90,9 @@ func Load(get Lookup) (Config, error) {
 		AppleToken:        str(get, "APPLE_MUSIC_TOKEN", ""),
 		AppleStorefront:   str(get, "APPLE_MUSIC_STOREFRONT", "us"),
 		AppleProxy:        str(get, "APPLE_MUSIC_PROXY", ""),
+		SoundCloudEnabled: flag(get, "SOUNDCLOUD_ENABLED", true),
+		SoundCloudID:      str(get, "SOUNDCLOUD_CLIENT_ID", ""),
+		SoundCloudProxy:   str(get, "SOUNDCLOUD_PROXY", ""),
 	}
 	if c.Password == "" || c.Password == insecurePassword {
 		return Config{}, errors.New("CADENCE_PASSWORD must be set to a non-default value")
