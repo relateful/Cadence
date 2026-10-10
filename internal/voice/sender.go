@@ -87,7 +87,7 @@ func (s *sender) run() {
 				s.conn.log.Warn("bitrate change failed", "error", err)
 			}
 		}
-		if s.conn.dave != nil && !s.conn.dave.Ready() {
+		if s.conn.holdAudio() {
 			waits++
 			if waits%daveWaitLogEvery == 1 {
 				s.conn.log.Info("holding audio until the DAVE epoch is ready")

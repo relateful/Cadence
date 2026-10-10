@@ -89,6 +89,19 @@ type Conn struct {
 	bitrate     atomic.Int64
 	sender      *sender
 	senderMu    sync.Mutex
+	daveVersion atomic.Int32
+	transMu     sync.Mutex
+	pending     map[uint16]uint16
+}
+
+func (c *Conn) holdAudio() bool {
+	return c.dave != nil && c.daveVersion.Load() > 0 && !c.dave.Ready()
+}
+
+func (c *Conn) setDaveVersion(v uint16, why string) {
+	if old := c.daveVersion.Swap(int32(v)); old != int32(v) {
+		c.log.Info("dave protocol version changed", "from", old, "to", v, "via", why)
+	}
 }
 
 func Dial(server Server, src FrameSource, onClose func(*Conn, CloseEvent), log *slog.Logger) (*Conn, error) {
@@ -362,6 +375,7 @@ func (c *Conn) handle(m inbound, hbCtx context.Context, resuming bool) error {
 			return err
 		}
 		c.dave.OnSelectProtocolAck(uint16(sd.DaveProtocolVersion))
+		c.setDaveVersion(uint16(sd.DaveProtocolVersion), "session description")
 		c.resumable.Store(true)
 		c.healthy.Store(true)
 		c.log.Info("voice session ready", "mode", sd.Mode, "dave", sd.DaveProtocolVersion)
@@ -390,11 +404,26 @@ func (c *Conn) handle(m inbound, hbCtx context.Context, resuming bool) error {
 		var t transition
 		if json.Unmarshal(m.D, &t) == nil && c.dave != nil {
 			c.dave.OnDavePrepareTransition(t.TransitionID, t.ProtocolVersion)
+			c.transMu.Lock()
+			if c.pending == nil {
+				c.pending = map[uint16]uint16{}
+			}
+			if len(c.pending) < 64 {
+				c.pending[t.TransitionID] = t.ProtocolVersion
+			}
+			c.transMu.Unlock()
 		}
 	case OpDaveExecuteTransition:
 		var t transition
 		if json.Unmarshal(m.D, &t) == nil && c.dave != nil {
 			c.dave.OnDaveExecuteTransition(t.TransitionID)
+			c.transMu.Lock()
+			v, ok := c.pending[t.TransitionID]
+			delete(c.pending, t.TransitionID)
+			c.transMu.Unlock()
+			if ok {
+				c.setDaveVersion(v, "transition")
+			}
 		}
 	case OpDavePrepareEpoch:
 		var e prepareEpoch
