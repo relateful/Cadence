@@ -23,6 +23,8 @@ const (
 	prefetchTimeout = 30 * time.Second
 )
 
+var SearchAliases = []string{"ytmsearch:", "ytsearch:"}
+
 type mirrorEntry struct {
 	track Track
 	ok    bool
@@ -145,6 +147,11 @@ func (r *Resolver) load(ctx context.Context, identifier string) LoadResult {
 	}
 	if s, query, ok := r.byPrefix(identifier); ok {
 		return r.search(ctx, s, query)
+	}
+	for _, alias := range SearchAliases {
+		if query, ok := strings.CutPrefix(identifier, alias); ok {
+			return r.search(ctx, r.audio, strings.TrimSpace(query))
+		}
 	}
 	var last LoadResult = Empty()
 	for _, name := range r.searchOrder {

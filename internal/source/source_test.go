@@ -163,3 +163,14 @@ func TestEnqueueIsBoundedAndDeduplicated(t *testing.T) {
 		t.Fatalf("duplicate started a second warm (%d pending)", n)
 	}
 }
+
+func TestYouTubeSearchPrefixesSearchTheAudioSource(t *testing.T) {
+	audio := &fakeAudio{results: []Track{{Source: "fake", Identifier: "1", Title: "Song"}}}
+	r := NewResolver(audio, nil, logger())
+	for _, q := range []string{"ytmsearch:song", "ytsearch: song"} {
+		res := r.Load(context.Background(), q)
+		if res.Type != LoadSearch || res.Tracks[0].Source != "fake" {
+			t.Fatalf("%s: %+v", q, res)
+		}
+	}
+}

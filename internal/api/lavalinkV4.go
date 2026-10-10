@@ -14,7 +14,9 @@ import (
 	"github.com/greed/cadence/internal/voice"
 )
 
-var filtersV4 = []string{"equalizer", "timescale", "tremolo", "vibrato", "rotation", "lowPass", "karaoke"}
+const aliasSourceV4 = "youtube"
+
+var filtersV4 =[]string{"equalizer", "timescale", "tremolo", "vibrato", "rotation", "lowPass", "karaoke"}
 
 func (s *Server) routesV4(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v4/websocket", s.websocket(session.ProtocolV4))
@@ -50,7 +52,7 @@ func (s *Server) infoV4(w http.ResponseWriter, r *http.Request) {
 		"git":            map[string]any{"branch": "main", "commit": "", "commitTime": 0},
 		"jvm":            runtime.Version(),
 		"lavaplayer":     "cadence " + Version,
-		"sourceManagers": s.resolver.Sources(),
+		"sourceManagers": append(s.resolver.Sources(), aliasSourceV4),
 		"filters":        filtersV4,
 		"plugins":        []any{},
 		"cadence":        Version,
