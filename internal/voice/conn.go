@@ -22,9 +22,14 @@ import (
 
 const (
 	connectTimeout = 10 * time.Second
-	maxReconnects  = 5
+	maxReconnects  = 10
+	maxBackoff     = 16 * time.Second
 	readLimit      = 1 << 20
 )
+
+func reconnectDelay(attempt int) time.Duration {
+	return min(maxBackoff, time.Duration(1<<min(attempt-1, 5))*time.Second)
+}
 
 type Server struct {
 	GuildID   string `json:"guildId"`
@@ -199,6 +204,7 @@ func (c *Conn) run() {
 			attempts = 0
 		}
 		if _, terminal := terminalCodes[code]; terminal || code == int(websocket.StatusNormalClosure) {
+			c.log.Warn("voice gateway closed for good", "code", code, "reason", reason)
 			c.dead.Store(true)
 			c.teardown()
 			c.onClose(c, CloseEvent{Code: code, Reason: reason, ByRemote: true, Terminal: true})
@@ -206,6 +212,7 @@ func (c *Conn) run() {
 		}
 		attempts++
 		if attempts > maxReconnects {
+			c.log.Error("voice gateway gave up reconnecting", "attempts", maxReconnects, "code", code, "error", err)
 			c.dead.Store(true)
 			c.teardown()
 			c.onClose(c, CloseEvent{Code: code, Reason: fmt.Sprintf("gave up after %d reconnects: %v", maxReconnects, err), ByRemote: true, Terminal: true})
@@ -217,7 +224,7 @@ func (c *Conn) run() {
 			c.teardown()
 		}
 		select {
-		case <-time.After(time.Duration(1<<(attempts-1)) * time.Second):
+		case <-time.After(reconnectDelay(attempts)):
 		case <-c.ctx.Done():
 			return
 		}

@@ -1,6 +1,7 @@
 package session
 
 import (
+	"errors"
 	"log/slog"
 	"strconv"
 	"sync"
@@ -12,6 +13,8 @@ import (
 	"github.com/greed/cadence/internal/player"
 	"github.com/greed/cadence/internal/voice"
 )
+
+var errIncompleteVoice = errors.New("incomplete voice server state")
 
 type Guild struct {
 	ID      string
@@ -60,11 +63,16 @@ func (g *Guild) UpdateVoice(s voice.Server) error {
 		}
 		return nil
 	}
+	if !s.Valid() {
+		g.log.Warn("ignored an incomplete voice update, keeping the current connection", "hasSession", s.SessionID != "", "hasToken", s.Token != "", "hasEndpoint", s.Endpoint != "", "hasChannel", s.ChannelID != "", "connected", g.live() != nil)
+		return errIncompleteVoice
+	}
 	if old := g.conn.Swap(nil); old != nil {
 		old.Close()
 	}
 	conn, err := voice.Dial(s, g.Player, g.onVoiceClose, g.log)
 	if err != nil {
+		g.log.Warn("voice dial failed", "error", err)
 		return err
 	}
 	g.conn.Store(conn)
