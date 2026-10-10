@@ -60,3 +60,46 @@ func TestSeekDuringRunningFadeLandsOnTheIncomingTrack(t *testing.T) {
 		t.Fatalf("incoming track position %v, want about 2500", info.PositionMs)
 	}
 }
+
+func TestSecondFadePromotesTheRunningIncomingDeck(t *testing.T) {
+	p, rec := newTestPlayer(map[string]float64{"a": 6, "b": 6, "c": 6})
+	defer p.Destroy()
+	p.Play(track("a"), 0, false)
+	rec.wait(t, EventTrackStart)
+	if _, err := p.LoadDeckB(track("b"), 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.StartCrossfade(CrossfadeRequest{DurationMs: 3000, Curve: "LINEAR"}); err != nil {
+		t.Fatal(err)
+	}
+	var out audio.Frame
+	for i := 0; i < 5; i++ {
+		frame(t, p, &out)
+	}
+	if _, err := p.LoadDeckB(track("c"), 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.StartCrossfade(CrossfadeRequest{DurationMs: 3000, Curve: "LINEAR"}); err != nil {
+		t.Fatal(err)
+	}
+	rec.wait(t, EventMixPromoted)
+	s := p.State()
+	if s.Track == nil || s.Track.Identifier != "b" || !s.Mixing {
+		t.Fatalf("state after second fade %+v", s)
+	}
+}
+
+func TestCancelPendingReportsTheDroppedMix(t *testing.T) {
+	p, rec := newTestPlayer(map[string]float64{"a": 6, "b": 6})
+	defer p.Destroy()
+	p.Play(track("a"), 0, false)
+	rec.wait(t, EventTrackStart)
+	if _, err := p.LoadDeckB(track("b"), 0); err != nil {
+		t.Fatal(err)
+	}
+	p.CancelPending()
+	e := rec.wait(t, EventMixDropped)
+	if e.Track == nil || e.Track.Identifier != "b" {
+		t.Fatalf("dropped event names %+v, want b", e.Track)
+	}
+}

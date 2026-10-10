@@ -225,16 +225,30 @@ func (p *Player) watch(d *Deck) {
 	}
 }
 
-func (p *Player) clearMixLocked() {
-	for _, d := range []*Deck{p.incoming, p.cued, p.next} {
-		if d != nil {
-			d.Close()
-		}
+func (p *Player) dropDeckLocked(d *Deck, inst uint64) {
+	d.Close()
+	t := d.Track
+	p.emit(Event{Type: EventMixDropped, Track: &t, Instance: inst})
+}
+
+func (p *Player) dropMixLocked() {
+	if p.incoming != nil {
+		p.dropDeckLocked(p.incoming, p.incInst)
 	}
 	if p.pending != nil {
-		p.pending.deck.Close()
+		p.dropDeckLocked(p.pending.deck, p.pending.instance)
+	}
+	if p.cued != nil {
+		p.dropDeckLocked(p.cued, p.cuedInst)
 	}
 	p.incoming, p.cued, p.pending, p.fade = nil, nil, nil, nil
+}
+
+func (p *Player) clearMixLocked() {
+	p.dropMixLocked()
+	if p.next != nil {
+		p.next.Close()
+	}
 	p.next, p.nextInst = nil, 0
 	p.nextGen++
 	p.incGain = 1
@@ -284,6 +298,9 @@ func (p *Player) SetFilters(f Filters) {
 			d.SetFilters(f)
 		}
 	}
+	if p.pending != nil {
+		p.pending.deck.SetFilters(f)
+	}
 	p.mu.Unlock()
 }
 
@@ -296,18 +313,7 @@ func (p *Player) SeekTo(ms int64) error {
 	if p.fade != nil && p.incoming != nil {
 		p.promoteLocked()
 	}
-	if p.pending != nil || p.cued != nil {
-		dropped := p.active.Track
-		if p.pending != nil {
-			p.pending.deck.Close()
-			p.pending = nil
-		}
-		if p.cued != nil {
-			p.cued.Close()
-			p.cued = nil
-		}
-		p.emit(Event{Type: EventMixDropped, Track: &dropped, Instance: p.activeInst})
-	}
+	p.dropMixLocked()
 	d, inst := p.active, p.activeInst
 	next := p.newDeck(d.Track, d.Playable, max(0, ms))
 	p.active = next
@@ -329,7 +335,7 @@ func (p *Player) LoadDeckB(t source.Track, startMs int64) (uint64, error) {
 		return 0, p.ctx.Err()
 	}
 	if p.cued != nil {
-		p.cued.Close()
+		p.dropDeckLocked(p.cued, p.cuedInst)
 	}
 	p.instance++
 	p.cued, p.cuedInst = p.newDeck(t, playable, max(0, startMs)), p.instance
@@ -366,7 +372,7 @@ func (p *Player) StartCrossfade(req CrossfadeRequest) error {
 	}
 	if req.AtPositionMs != nil {
 		if p.pending != nil {
-			p.pending.deck.Close()
+			p.dropDeckLocked(p.pending.deck, p.pending.instance)
 		}
 		p.pending = &pendingMix{deck: deck, instance: inst, durationMs: req.DurationMs, curve: curve, atMs: *req.AtPositionMs, profile: req.Profile, gain: gain}
 		p.mu.Unlock()
@@ -380,6 +386,9 @@ func (p *Player) StartCrossfade(req CrossfadeRequest) error {
 
 func (p *Player) beginFadeLocked(deck *Deck, inst uint64, durationMs int, curve audio.FadeCurve, profile audio.TransitionProfile, gain float64) {
 	p.pending = nil
+	if p.fade != nil && p.incoming != nil {
+		p.promoteLocked()
+	}
 	p.profile = profile
 	if deck.measured {
 		gain = 1
@@ -405,11 +414,11 @@ func (p *Player) CancelPending() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.pending != nil {
-		p.pending.deck.Close()
+		p.dropDeckLocked(p.pending.deck, p.pending.instance)
 		p.pending = nil
 	}
 	if p.cued != nil {
-		p.cued.Close()
+		p.dropDeckLocked(p.cued, p.cuedInst)
 		p.cued = nil
 	}
 }
@@ -495,6 +504,11 @@ func (p *Player) NextFrame(out *audio.Frame) (FrameInfo, bool) {
 
 func (p *Player) checkEndLocked() {
 	d, inst := p.active, p.activeInst
+	if f := d.Failure(); f != nil && p.fade != nil && p.incoming != nil {
+		p.emit(Event{Type: EventTrackException, Track: &d.Track, Encoded: d.Track.Encode(), Instance: inst, Exception: f})
+		p.promoteLocked()
+		return
+	}
 	if f := d.Failure(); f != nil {
 		p.active, p.activeInst = nil, 0
 		p.clearMixLocked()
@@ -505,11 +519,7 @@ func (p *Player) checkEndLocked() {
 	}
 	if d.Ended() {
 		p.active, p.activeInst = nil, 0
-		if p.pending != nil {
-			p.pending.deck.Close()
-			p.emit(Event{Type: EventMixDropped, Track: &p.pending.deck.Track, Instance: p.pending.instance})
-			p.pending = nil
-		}
+		p.dropMixLocked()
 		d.Close()
 		p.emit(Event{Type: EventTrackEnd, Track: &d.Track, Encoded: d.Track.Encode(), Instance: inst, Reason: EndFinished})
 		return
