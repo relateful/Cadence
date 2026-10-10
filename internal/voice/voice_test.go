@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"encoding/json"
+	"net"
 	"testing"
 )
 
@@ -108,5 +109,66 @@ func TestRegionFromEndpoint(t *testing.T) {
 	}
 	if r := (Server{Endpoint: "brazil11120.discord.media:443"}).Region(); r != "brazil" {
 		t.Fatalf("region %q", r)
+	}
+}
+
+func discoveryReply(ssrc uint32) []byte {
+	res := make([]byte, 74)
+	binary.BigEndian.PutUint16(res, 2)
+	binary.BigEndian.PutUint16(res[2:], 70)
+	binary.BigEndian.PutUint32(res[4:], ssrc)
+	copy(res[8:], "198.51.100.7")
+	binary.BigEndian.PutUint16(res[72:], 40000)
+	return res
+}
+
+func listenLocal(t *testing.T) *net.UDPConn {
+	t.Helper()
+	c, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { c.Close() })
+	return c
+}
+
+func TestDiscoveryAcceptsReplyFromAnotherAddress(t *testing.T) {
+	server, other := listenLocal(t), listenLocal(t)
+	client := listenLocal(t)
+	go func() {
+		buf := make([]byte, 128)
+		_, from, err := server.ReadFromUDP(buf)
+		if err != nil {
+			return
+		}
+		other.WriteToUDP(discoveryReply(1), from)
+		other.WriteToUDP(discoveryReply(7), from)
+	}()
+	got, err := discover(client, server.LocalAddr().(*net.UDPAddr), 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.IP != "198.51.100.7" || got.Port != 40000 || got.From.Port != other.LocalAddr().(*net.UDPAddr).Port {
+		t.Fatalf("%+v", got)
+	}
+}
+
+func TestDiscoveryResendsWhenTheFirstRequestIsLost(t *testing.T) {
+	server, client := listenLocal(t), listenLocal(t)
+	go func() {
+		buf := make([]byte, 128)
+		server.ReadFromUDP(buf)
+		_, from, err := server.ReadFromUDP(buf)
+		if err != nil {
+			return
+		}
+		server.WriteToUDP(discoveryReply(3), from)
+	}()
+	got, err := discover(client, server.LocalAddr().(*net.UDPAddr), 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Attempts != 2 {
+		t.Fatalf("attempts %d", got.Attempts)
 	}
 }

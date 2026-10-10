@@ -158,7 +158,7 @@ func (s *sender) write(opus []byte) error {
 		payload = s.daveBuf[:n]
 	}
 	packet := s.sealer.Seal(s.rtp.Next(audio.FrameSamplesPerChannel), payload)
-	_, err := s.conn.udp.Write(packet)
+	_, err := s.conn.udp.WriteToUDP(packet, s.conn.remote)
 	return err
 }
 

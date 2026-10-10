@@ -78,6 +78,7 @@ type Conn struct {
 	seq         atomic.Int64
 	dave        godave.Session
 	udp         *net.UDPConn
+	remote      *net.UDPAddr
 	ssrc        uint32
 	resumable   atomic.Bool
 	healthy     atomic.Bool
@@ -431,18 +432,22 @@ func (c *Conn) ready(r ready) error {
 	if c.udp != nil {
 		c.udp.Close()
 	}
-	udp, err := net.DialUDP("udp", nil, addr)
+	udp, err := net.ListenUDP("udp", nil)
 	if err != nil {
 		return err
 	}
-	ip, port, err := discover(udp, r.SSRC)
+	found, err := discover(udp, addr, r.SSRC)
 	if err != nil {
 		udp.Close()
 		return err
 	}
-	c.udp, c.ssrc = udp, r.SSRC
+	if !found.From.IP.Equal(addr.IP) || found.From.Port != addr.Port || found.Attempts > 1 {
+		c.log.Info("ip discovery needed help", "server", addr.String(), "repliedFrom", found.From.String(), "attempts", found.Attempts)
+	}
+	c.udp, c.remote, c.ssrc = udp, addr, r.SSRC
+	go drainUDP(udp)
 	c.dave.AssignSsrcToCodec(r.SSRC, godave.CodecOpus)
-	return c.send(OpSelectProtocol, selectProtocol{Protocol: "udp", Data: selectProtocolData{Address: ip, Port: port, Mode: mode}})
+	return c.send(OpSelectProtocol, selectProtocol{Protocol: "udp", Data: selectProtocolData{Address: found.IP, Port: found.Port, Mode: mode}})
 }
 
 type daveCallbacks struct {

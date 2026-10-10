@@ -20,6 +20,7 @@ const (
 	discoveryRequest  = 0x1
 	discoveryResponse = 0x2
 	discoveryTimeout  = 5 * time.Second
+	discoveryResend   = time.Second
 	nonceCounterSize  = 4
 )
 
@@ -111,16 +112,63 @@ func ParseDiscovery(p []byte) (string, int, error) {
 	return string(addr[:end]), int(binary.BigEndian.Uint16(p[72:])), nil
 }
 
-func discover(conn *net.UDPConn, ssrc uint32) (string, int, error) {
-	if _, err := conn.Write(DiscoveryPacket(ssrc)); err != nil {
-		return "", 0, err
-	}
-	conn.SetReadDeadline(time.Now().Add(discoveryTimeout))
+type Discovery struct {
+	IP       string
+	Port     int
+	From     *net.UDPAddr
+	Attempts int
+}
+
+func discover(conn *net.UDPConn, remote *net.UDPAddr, ssrc uint32) (Discovery, error) {
+	request := DiscoveryPacket(ssrc)
+	deadline := time.Now().Add(discoveryTimeout)
 	defer conn.SetReadDeadline(time.Time{})
-	buf := make([]byte, discoveryLength)
-	n, err := conn.Read(buf)
-	if err != nil {
-		return "", 0, fmt.Errorf("ip discovery: %w", err)
+	buf := make([]byte, 1500)
+	attempts := 0
+	for time.Now().Before(deadline) {
+		if _, err := conn.WriteToUDP(request, remote); err != nil {
+			return Discovery{}, fmt.Errorf("ip discovery send: %w", err)
+		}
+		attempts++
+		resend := time.Now().Add(discoveryResend)
+		if resend.After(deadline) {
+			resend = deadline
+		}
+		conn.SetReadDeadline(resend)
+		for {
+			n, from, err := conn.ReadFromUDP(buf)
+			if err != nil {
+				var ne net.Error
+				if errors.As(err, &ne) && ne.Timeout() {
+					break
+				}
+				return Discovery{}, fmt.Errorf("ip discovery: %w", err)
+			}
+			if n < discoveryLength || binary.BigEndian.Uint32(buf[4:8]) != ssrc {
+				continue
+			}
+			ip, port, err := ParseDiscovery(buf[:n])
+			if err != nil {
+				continue
+			}
+			return Discovery{IP: ip, Port: port, From: from, Attempts: attempts}, nil
+		}
 	}
-	return ParseDiscovery(buf[:n])
+	return Discovery{}, fmt.Errorf("ip discovery: no reply from %s after %d attempts in %s", remote, attempts, discoveryTimeout)
+}
+
+func drainUDP(conn *net.UDPConn) {
+	buf := make([]byte, 2048)
+	for {
+		if _, _, err := conn.ReadFromUDP(buf); err != nil {
+			if errors.Is(err, net.ErrClosed) {
+				return
+			}
+			var ne net.Error
+			if errors.As(err, &ne) && ne.Timeout() {
+				continue
+			}
+			return
+		}
+	}
 }
