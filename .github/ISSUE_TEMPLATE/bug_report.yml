@@ -1,0 +1,77 @@
+name: Bug report
+description: Something in Cadence doesn't work the way it should.
+title: "bug: "
+labels: ["bug", "needs triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this. Please don't include your `CADENCE_PASSWORD`, Deezer ARL, master key or any other credential. For security problems, use a private advisory instead (see SECURITY.md).
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Which part of Cadence is affected?
+      options:
+        - Voice (joining, silence, disconnects, DAVE)
+        - Playback and mixing (crossfades, seeking, filters)
+        - Sources (Deezer, SoundCloud, Spotify, Apple Music)
+        - Timing (positions, TrackAudibleEvent, lyrics sync)
+        - API and sessions (REST, WebSocket, resume)
+        - Analysis (fingerprints, loudness)
+        - Build and deployment
+        - Not sure
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Describe what you saw, and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How can we reproduce it?
+      description: The smallest set of steps or requests that shows the problem.
+      placeholder: |
+        1. Load a track with ...
+        2. Start a crossfade with ...
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Relevant Cadence log lines around the problem. Remove anything private first.
+      render: json
+  - type: input
+    id: version
+    attributes:
+      label: Cadence version
+      description: The `version` from `GET /v4/info`, or the commit you built from.
+    validations:
+      required: true
+  - type: dropdown
+    id: build
+    attributes:
+      label: Build
+      options:
+        - Docker image
+        - Native build (-tags native) on Linux
+        - Default build (no voice)
+    validations:
+      required: true
+  - type: input
+    id: client
+    attributes:
+      label: Client library
+      description: The Lavalink client your bot uses, with its version.
+      placeholder: lavalink-client 2.10.3
+  - type: input
+    id: region
+    attributes:
+      label: Voice region
+      description: If this is a voice problem, the region shown in the "voice session ready" log line (for example iad or mxp).

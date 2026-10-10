@@ -6,3 +6,4 @@
 CLAUDE.md
 .claude/
 .playwright-mcp/
+.env

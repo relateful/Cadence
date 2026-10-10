@@ -1,0 +1,35 @@
+name: Label issues
+
+on:
+  issues:
+    types: [opened, edited]
+
+permissions:
+  issues: write
+
+jobs:
+  area:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const body = context.payload.issue.body ?? "";
+            const match = body.match(/### Area\s+([^\n]+)/);
+            if (!match) return;
+            const choice = match[1].trim().toLowerCase();
+            const areas = [
+              ["voice", "area: voice"],
+              ["playback", "area: mixer"],
+              ["sources", "area: sources"],
+              ["timing", "area: timing"],
+              ["api", "area: api"],
+              ["analysis", "area: analysis"],
+              ["build", "area: build"],
+              ["documentation", "documentation"],
+            ];
+            const found = areas.find(([word]) => choice.startsWith(word));
+            if (!found) return;
+            const labels = [found[1]];
+            if (/- \[x\] This would change behaviour that Lavalink v4 clients rely on/i.test(body)) labels.push("breaking change");
+            await github.rest.issues.addLabels({ ...context.repo, issue_number: context.issue.number, labels });
