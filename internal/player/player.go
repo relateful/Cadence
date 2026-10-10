@@ -289,15 +289,26 @@ func (p *Player) SetFilters(f Filters) {
 
 func (p *Player) SeekTo(ms int64) error {
 	p.mu.Lock()
-	d, inst := p.active, p.activeInst
-	if d == nil {
+	if p.active == nil {
 		p.mu.Unlock()
 		return ErrNothingToMix
 	}
-	if p.fade != nil || p.pending != nil {
-		p.mu.Unlock()
-		return errors.New("cannot seek while mixing")
+	if p.fade != nil && p.incoming != nil {
+		p.promoteLocked()
 	}
+	if p.pending != nil || p.cued != nil {
+		dropped := p.active.Track
+		if p.pending != nil {
+			p.pending.deck.Close()
+			p.pending = nil
+		}
+		if p.cued != nil {
+			p.cued.Close()
+			p.cued = nil
+		}
+		p.emit(Event{Type: EventMixDropped, Track: &dropped, Instance: p.activeInst})
+	}
+	d, inst := p.active, p.activeInst
 	next := p.newDeck(d.Track, d.Playable, max(0, ms))
 	p.active = next
 	p.last = sent{}
