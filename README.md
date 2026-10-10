@@ -10,7 +10,7 @@
 [![Encryption](https://img.shields.io/badge/transport-AES--256--GCM%20%7C%20XChaCha20-informational)](#discord-voice)
 [![Sources](https://img.shields.io/badge/sources-Deezer%20%C2%B7%20SoundCloud%20%C2%B7%20Spotify%20%C2%B7%20Apple%20Music-ff69b4)](#sources)
 [![Status](https://img.shields.io/badge/status-pre--release-orange)](#status)
-[![License](https://img.shields.io/badge/license-proprietary-lightgrey)](#license)
+[![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 [Why](#why-cadence) · [Features](#features) · [Quick start](#quick-start) · [Configuration](#configuration) · [API](#api) · [Timing](#the-wire-clock) · [Mixing](#mixing) · [Architecture](#architecture)
 
@@ -291,6 +291,6 @@ Cadence is **pre-release**, and **running live**: the native (`libopus` + `libda
 
 ## License
 
-Proprietary. © greed. All rights reserved.
+Cadence is released under the [MIT License](LICENSE). © 2026 greed.
 
 Cadence builds on [godave](https://github.com/disgoorg/godave) and Discord's [libdave](https://github.com/discord/libdave) (Apache-2.0 / MIT), [hraban/opus](https://github.com/hraban/opus) (MIT), [go-mp3](https://github.com/hajimehoshi/go-mp3) (Apache-2.0) and [coder/websocket](https://github.com/coder/websocket) (ISC). The voice protocol work was cross-checked against [disgo](https://github.com/disgoorg/disgo).
