@@ -68,7 +68,7 @@ func (o *Offline) Enqueue(t source.Track, force bool) bool {
 		return false
 	}
 	o.mu.Lock()
-	if at, ok := o.failures[k]; ok && !force && time.Since(at) < failRetry {
+	if at, ok := o.failures[k]; ok && time.Since(at) < failRetry {
 		o.mu.Unlock()
 		return false
 	}

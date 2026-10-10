@@ -182,7 +182,13 @@ func TestOfflineQueueDropsWhenFull(t *testing.T) {
 	if o.Enqueue(source.Track{Source: "s", Identifier: "a"}, false) {
 		t.Fatal("a track that just failed was queued again before failRetry")
 	}
-	if !o.Enqueue(source.Track{Source: "s", Identifier: "a"}, true) {
-		t.Fatal("finished track was not released")
+	if o.Enqueue(source.Track{Source: "s", Identifier: "a"}, true) {
+		t.Fatal("force bypassed the failure memory")
+	}
+	o.mu.Lock()
+	o.failures["s:a"] = time.Now().Add(-failRetry)
+	o.mu.Unlock()
+	if !o.Enqueue(source.Track{Source: "s", Identifier: "a"}, false) {
+		t.Fatal("finished track was not released after failRetry")
 	}
 }
