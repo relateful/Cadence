@@ -84,6 +84,7 @@ type playerPatch struct {
 	Filters  *player.Filters `json:"filters"`
 	Voice    *voiceField     `json:"voice"`
 	Analyze  *bool           `json:"analyze"`
+	Bitrate  *int            `json:"bitrate"`
 }
 
 func (s *Server) updatePlayer(w http.ResponseWriter, r *http.Request) {
@@ -104,6 +105,9 @@ func (s *Server) updatePlayer(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) applyPatch(sess *session.Session, g *session.Guild, p playerPatch, noReplace bool) (int, error) {
+	if p.Bitrate != nil {
+		g.SetBitrate(*p.Bitrate)
+	}
 	if p.Analyze != nil {
 		if *p.Analyze {
 			g.Player.SetAnalysis(sess.AnalysisTap)
@@ -119,6 +123,9 @@ func (s *Server) applyPatch(sess *session.Session, g *session.Guild, p playerPat
 	}
 	if p.Voice != nil {
 		bitrate := p.Voice.Bitrate
+		if bitrate <= 0 {
+			bitrate = g.PreferredBitrate()
+		}
 		if bitrate <= 0 {
 			bitrate = s.bitrate
 		}

@@ -185,3 +185,22 @@ func callList(t *testing.T, url string) (*http.Response, []any) {
 	json.NewDecoder(res.Body).Decode(&out)
 	return res, out
 }
+
+func TestPlayerBitrateIsRememberedAndClamped(t *testing.T) {
+	ts, sessions := newTestServer(t)
+	conn, sid := dialV4(t, ts)
+	defer conn.CloseNow()
+	base := ts.URL + "/v4/sessions/" + sid + "/players/42"
+	if res, _ := call(t, "PATCH", base, map[string]any{"bitrate": 128000}); res.StatusCode != http.StatusOK {
+		t.Fatalf("patch %d", res.StatusCode)
+	}
+	sess, _ := sessions.Get(sid)
+	g := sess.Guild("42", false)
+	if g.PreferredBitrate() != 128000 {
+		t.Fatalf("bitrate %d", g.PreferredBitrate())
+	}
+	call(t, "PATCH", base, map[string]any{"bitrate": 9_000_000})
+	if g.PreferredBitrate() != 384000 {
+		t.Fatalf("not clamped: %d", g.PreferredBitrate())
+	}
+}

@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/greed/cadence/internal/codec"
 	"github.com/greed/cadence/internal/metrics"
 	"github.com/greed/cadence/internal/player"
 	"github.com/greed/cadence/internal/voice"
@@ -21,6 +22,7 @@ type Guild struct {
 	server  voice.Server
 	log     *slog.Logger
 
+	bitrate     int
 	userEncoded string
 	userData    map[string]any
 }
@@ -89,4 +91,21 @@ func (g *Guild) Disconnect() {
 func (g *Guild) Destroy() {
 	g.Disconnect()
 	g.Player.Destroy()
+}
+
+func (g *Guild) SetBitrate(bps int) {
+	bps = codec.ClampBitrate(bps)
+	g.mu.Lock()
+	g.bitrate = bps
+	g.server.Bitrate = bps
+	g.mu.Unlock()
+	if conn := g.live(); conn != nil {
+		conn.SetBitrate(bps)
+	}
+}
+
+func (g *Guild) PreferredBitrate() int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.bitrate
 }
