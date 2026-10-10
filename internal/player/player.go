@@ -98,6 +98,10 @@ type Player struct {
 
 	loading     *source.Track
 	loadingFrom int64
+
+	next     *Deck
+	nextInst uint64
+	adopt    *adoption
 }
 
 func New(cfg Config) *Player {
@@ -153,6 +157,11 @@ func (p *Player) resolve(t source.Track) (source.Track, error) {
 
 func (p *Player) Play(t source.Track, startMs int64, paused bool) uint64 {
 	p.mu.Lock()
+	if inst, ok := p.adoptLocked(t, startMs, paused); ok {
+		p.mu.Unlock()
+		return inst
+	}
+	p.adopt = nil
 	p.instance++
 	inst := p.instance
 	old, oldInst := p.active, p.activeInst
@@ -212,7 +221,7 @@ func (p *Player) watch(d *Deck) {
 }
 
 func (p *Player) clearMixLocked() {
-	for _, d := range []*Deck{p.incoming, p.cued} {
+	for _, d := range []*Deck{p.incoming, p.cued, p.next} {
 		if d != nil {
 			d.Close()
 		}
@@ -221,6 +230,7 @@ func (p *Player) clearMixLocked() {
 		p.pending.deck.Close()
 	}
 	p.incoming, p.cued, p.pending, p.fade = nil, nil, nil, nil
+	p.next, p.nextInst = nil, 0
 	p.incGain = 1
 	p.activeGain = 1
 	p.rampUntil = time.Time{}
@@ -417,6 +427,7 @@ func (p *Player) NextFrame(out *audio.Frame) (FrameInfo, bool) {
 		return FrameInfo{}, false
 	}
 	p.applyRampLocked()
+	p.expireAdoptionLocked()
 	p.releasePendingLocked()
 	vol := p.gainLocked()
 	if p.fade != nil && p.incoming != nil {
@@ -451,6 +462,9 @@ func (p *Player) NextFrame(out *audio.Frame) (FrameInfo, bool) {
 		return info, true
 	}
 	pos, ok := p.active.Read(&p.bufA)
+	if !ok && p.gaplessLocked() {
+		pos, ok = p.active.Read(&p.bufA)
+	}
 	if !ok {
 		p.checkEndLocked()
 		return FrameInfo{}, false
@@ -561,6 +575,7 @@ type State struct {
 	MixProgress     float64       `json:"mixProgress,omitempty"`
 	DeckBLoaded     bool          `json:"deckBLoaded"`
 	MixArmedAtMs    *int64        `json:"mixArmedAtMs,omitempty"`
+	NextTrack       *source.Track `json:"nextTrack,omitempty"`
 }
 
 func (p *Player) State() State {
@@ -596,6 +611,10 @@ func (p *Player) State() State {
 	if p.pending != nil {
 		at := p.pending.atMs
 		s.MixArmedAtMs = &at
+	}
+	if p.next != nil {
+		nt := p.next.Track
+		s.NextTrack = &nt
 	}
 	return s
 }

@@ -85,6 +85,7 @@ type playerPatch struct {
 	Voice    *voiceField     `json:"voice"`
 	Analyze  *bool           `json:"analyze"`
 	Bitrate  *int            `json:"bitrate"`
+	Next     *trackField     `json:"nextTrack"`
 }
 
 func (s *Server) updatePlayer(w http.ResponseWriter, r *http.Request) {
@@ -153,6 +154,11 @@ func (s *Server) applyPatch(sess *session.Session, g *session.Guild, p playerPat
 		g.SetUserData(t.Encode(), p.Track.UserData)
 		g.Player.Play(t, start, paused)
 		p.Position, p.Paused = nil, nil
+	}
+	if p.Next != nil {
+		if status, err := s.applyNext(g, p.Next); err != nil {
+			return status, err
+		}
 	}
 	if p.Paused != nil {
 		g.Player.Pause(*p.Paused)
@@ -234,4 +240,21 @@ func (s *Server) cancelMix(w http.ResponseWriter, r *http.Request) {
 	}
 	g.Player.CancelPending()
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) applyNext(g *session.Guild, next *trackField) (int, error) {
+	if next.Encoded == nil {
+		g.Player.ClearNext()
+		return http.StatusOK, nil
+	}
+	t, err := source.DecodeTrack(*next.Encoded)
+	if err != nil {
+		return http.StatusBadRequest, err
+	}
+	go func() {
+		if _, err := g.Player.SetNext(t); err != nil {
+			s.log.Warn("next track could not be preloaded", "guild", g.ID, "track", t.Key(), "error", err)
+		}
+	}()
+	return http.StatusOK, nil
 }
