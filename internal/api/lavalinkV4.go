@@ -16,7 +16,7 @@ import (
 
 const aliasSourceV4 = "youtube"
 
-var filtersV4 =[]string{"equalizer", "timescale", "tremolo", "vibrato", "rotation", "lowPass", "karaoke"}
+var filtersV4 = []string{"equalizer", "timescale", "tremolo", "vibrato", "rotation", "lowPass", "karaoke"}
 
 func (s *Server) routesV4(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v4/websocket", s.websocket(session.ProtocolV4))
