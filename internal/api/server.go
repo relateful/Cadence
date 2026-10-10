@@ -139,7 +139,7 @@ func (s *Server) info(w http.ResponseWriter, r *http.Request) {
 		"version":   Version,
 		"sources":   s.resolver.Sources(),
 		"dave":      voice.DaveAvailable(),
-		"filters":   []string{"equalizer", "timescale", "tremolo", "vibrato", "rotation", "lowPass", "karaoke"},
+		"filters":   filtersV4,
 		"mixing":    true,
 		"analysis":  analysis.AnalysisVersion,
 		"wireClock": true,

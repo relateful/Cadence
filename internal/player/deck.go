@@ -54,6 +54,7 @@ type Deck struct {
 
 	filters    Filters
 	fx         effects
+	ramp       filterRamp
 	tempoRatio float64
 	positionMs float64
 	produced   int64
@@ -232,7 +233,7 @@ func (d *Deck) feed() bool {
 		}
 		if d.resampler == nil || c.rate != d.rate {
 			d.rate = c.rate
-			d.resampler = audio.NewResampler(c.rate, d.filters.resampleFactor())
+			d.resampler = audio.NewResampler(c.rate, d.ramp.resampleFactor(d.filters))
 			d.resampler.Reset(c.start)
 		}
 		d.resampler.Write(c.samples)
@@ -248,14 +249,15 @@ func (d *Deck) Read(out *audio.Frame) (float64, bool) {
 	if d.ended.Load() {
 		return d.positionMs, false
 	}
-	d.stretch.SetTempo(d.filters.tempo() * d.tempoRatio)
+	d.ramp.advance(d.filters)
+	d.stretch.SetTempo(d.ramp.tempoFactor(d.filters) * d.tempoRatio)
 	for {
 		if pos, ok := d.stretch.Next(d.hop); ok {
 			d.emit(out, pos)
 			return d.positionMs, true
 		}
 		if d.resampler != nil {
-			d.resampler.Configure(d.rate, d.filters.resampleFactor())
+			d.resampler.Configure(d.rate, d.ramp.resampleFactor(d.filters))
 			if d.pump() {
 				continue
 			}
@@ -307,7 +309,7 @@ func (d *Deck) emit(out *audio.Frame, posMs float64) {
 	for i := range out {
 		out[i] = audio.Clip(d.hop[i])
 	}
-	d.fx.apply(d.filters, out)
+	d.fx.apply(d.ramp.effective(), d.ramp.wet, out)
 	d.positionMs = posMs
 	d.produced++
 	d.starvedAt = time.Time{}

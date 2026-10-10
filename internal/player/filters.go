@@ -45,6 +45,7 @@ type Filters struct {
 	Rotation  *Rotation   `json:"rotation,omitempty"`
 	LowPass   *LowPass    `json:"lowPass,omitempty"`
 	Karaoke   *Karaoke    `json:"karaoke,omitempty"`
+	Reverb    *Reverb     `json:"reverb,omitempty"`
 }
 
 func DefaultFilters() Filters {
@@ -92,6 +93,7 @@ type effects struct {
 	delayL     [vibratoMaxDelay]float64
 	delayR     [vibratoMaxDelay]float64
 	delayIdx   int
+	rev        reverbState
 }
 
 func (e *effects) configureEq(bands []Band) bool {
@@ -134,10 +136,14 @@ func peaking(hz, gain float64) (float64, float64, float64, float64, float64) {
 }
 
 func (f Filters) Active() bool {
-	return len(f.Equalizer) > 0 || f.Tremolo != nil || f.Vibrato != nil || f.Rotation != nil || f.LowPass != nil || f.Karaoke != nil
+	return len(f.Equalizer) > 0 || f.Tremolo != nil || f.Vibrato != nil || f.Rotation != nil || f.LowPass != nil || f.Karaoke != nil || f.Reverb != nil
 }
 
-func (e *effects) apply(f Filters, out *audio.Frame) {
+func mix(dry, wet, amount float64) float64 {
+	return dry + (wet-dry)*amount
+}
+
+func (e *effects) apply(f Filters, wet [wetCount]float64, out *audio.Frame) {
 	if !f.Active() {
 		return
 	}
@@ -146,7 +152,7 @@ func (e *effects) apply(f Filters, out *audio.Frame) {
 	for i := 0; i < len(out); i += 2 {
 		l, r := float64(out[i]), float64(out[i+1])
 		if f.Karaoke != nil {
-			level := math.Max(0, math.Min(1, f.Karaoke.Level))
+			level := math.Max(0, math.Min(1, f.Karaoke.Level)) * wet[wetKaraoke]
 			mid := (l + r) / 2
 			l -= mid * level
 			r -= mid * level
@@ -160,27 +166,31 @@ func (e *effects) apply(f Filters, out *audio.Frame) {
 		if f.LowPass != nil && f.LowPass.Smoothing > 1 {
 			e.lowL += (l - e.lowL) / f.LowPass.Smoothing
 			e.lowR += (r - e.lowR) / f.LowPass.Smoothing
-			l, r = e.lowL, e.lowR
+			l, r = mix(l, e.lowL, wet[wetLowPass]), mix(r, e.lowR, wet[wetLowPass])
 		}
 		if f.Vibrato != nil && f.Vibrato.Frequency > 0 {
 			e.delayL[e.delayIdx], e.delayR[e.delayIdx] = l, r
 			depth := math.Max(0, math.Min(1, f.Vibrato.Depth))
 			lag := int((0.5 + 0.5*math.Sin(e.vibPhase)) * depth * (vibratoMaxDelay - 2))
 			j := (e.delayIdx - lag + vibratoMaxDelay) % vibratoMaxDelay
-			l, r = e.delayL[j], e.delayR[j]
+			l, r = mix(l, e.delayL[j], wet[wetVibrato]), mix(r, e.delayR[j], wet[wetVibrato])
 			e.delayIdx = (e.delayIdx + 1) % vibratoMaxDelay
 			e.vibPhase += 2 * math.Pi * f.Vibrato.Frequency * dt
 		}
 		if f.Tremolo != nil && f.Tremolo.Frequency > 0 {
-			depth := math.Max(0, math.Min(1, f.Tremolo.Depth))
+			depth := math.Max(0, math.Min(1, f.Tremolo.Depth)) * wet[wetTremolo]
 			g := 1 - depth*(0.5+0.5*math.Sin(e.phase))
 			l, r = l*g, r*g
 			e.phase += 2 * math.Pi * f.Tremolo.Frequency * dt
 		}
 		if f.Rotation != nil && f.Rotation.RotationHz != 0 {
 			angle := (math.Sin(e.rotPhase) + 1) * math.Pi / 4
-			l, r = l*math.Cos(angle)*math.Sqrt2, r*math.Sin(angle)*math.Sqrt2
+			rl, rr := l*math.Cos(angle)*math.Sqrt2, r*math.Sin(angle)*math.Sqrt2
+			l, r = mix(l, rl, wet[wetRotation]), mix(r, rr, wet[wetRotation])
 			e.rotPhase += 2 * math.Pi * f.Rotation.RotationHz * dt
+		}
+		if f.Reverb != nil {
+			l, r = e.rev.process(l, r, f.Reverb, wet[wetReverb])
 		}
 		out[i], out[i+1] = audio.Clip(l), audio.Clip(r)
 	}
