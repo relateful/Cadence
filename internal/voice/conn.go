@@ -112,6 +112,16 @@ func (c *Conn) Dead() bool {
 	return c.dead.Load()
 }
 
+func (c *Conn) restartFresh(reason string) {
+	c.log.Warn("restarting the voice session from scratch", "reason", reason)
+	c.resumable.Store(false)
+	c.wsMu.Lock()
+	if c.ws != nil {
+		c.ws.Close(websocket.StatusGoingAway, reason)
+	}
+	c.wsMu.Unlock()
+}
+
 func (c *Conn) Ping() time.Duration {
 	return time.Duration(c.ping.Load())
 }

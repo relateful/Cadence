@@ -15,6 +15,7 @@ const (
 	stallThreshold   = 3 * frameInterval
 	silenceTrailer   = 5
 	daveWaitLogEvery = 50
+	daveHoldLimit    = 750
 )
 
 type sender struct {
@@ -90,6 +91,10 @@ func (s *sender) run() {
 			waits++
 			if waits%daveWaitLogEvery == 1 {
 				s.conn.log.Info("holding audio until the DAVE epoch is ready")
+			}
+			if waits >= daveHoldLimit {
+				waits = 0
+				s.conn.restartFresh("DAVE epoch never became ready")
 			}
 			next = s.sleep(next)
 			continue
