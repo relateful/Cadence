@@ -6,6 +6,16 @@ func Mix(a *Frame, aGain float64, b *Frame, bGain float64, out *Frame) {
 	}
 }
 
+func Ramp(f *Frame, from, to float64) {
+	for i := 0; i < FrameSamplesPerChannel; i++ {
+		g := from + (to-from)*float64(i+1)/FrameSamplesPerChannel
+		for c := 0; c < Channels; c++ {
+			k := i*Channels + c
+			f[k] = clip(float64(f[k]) * g)
+		}
+	}
+}
+
 func Scale(src *Frame, gain float64, out *Frame) {
 	if gain == 1 {
 		*out = *src

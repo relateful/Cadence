@@ -89,6 +89,7 @@ Everything is set through environment variables. See [`.env.example`](.env.examp
 | `CADENCE_BUFFER_MS` | `10000` | Decoded audio buffered per deck (1 000–60 000) |
 | `CADENCE_BITRATE` | `96000` | Default Opus bitrate when the bot doesn't send one |
 | `CADENCE_PLAYOUT_DELAY_MS` | `0` | Measured delay from Discord receiving audio to listeners hearing it, added to `audibleAt` |
+| `CADENCE_PAUSE_FADE_MS` | `0` | Fade out on pause and back in on resume (0–2000). `0` pauses instantly |
 | `CADENCE_RESUME_TIMEOUT_SECONDS` | `300` | How long players survive a disconnected client (when resuming is enabled) |
 | `CADENCE_UPDATE_INTERVAL_MS` | `1000` | `playerUpdate` cadence while playing (min 250) |
 | `CADENCE_SEARCH_ORDER` | `applemusic,spotify,deezer` | What plain-text searches query, in order |

@@ -123,6 +123,7 @@ func run() error {
 		Registry:       registry,
 		BufferFrames:   cfg.BufferMs / audio.FrameMs,
 		PlayoutDelay:   cfg.PlayoutDelay,
+		PauseFade:      cfg.PauseFade,
 		UpdateInterval: cfg.UpdateInterval,
 		Log:            log,
 	}

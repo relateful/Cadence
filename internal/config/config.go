@@ -16,6 +16,7 @@ type Config struct {
 	Password          string
 	BufferMs          int
 	PlayoutDelay      time.Duration
+	PauseFade         time.Duration
 	Bitrate           int
 	SearchOrder       []string
 	ResumeTimeout     time.Duration
@@ -125,6 +126,7 @@ func Load(get Lookup) (Config, error) {
 		target   *time.Duration
 	}{
 		{"CADENCE_PLAYOUT_DELAY_MS", 0, time.Millisecond, &c.PlayoutDelay},
+		{"CADENCE_PAUSE_FADE_MS", 0, time.Millisecond, &c.PauseFade},
 		{"CADENCE_RESUME_TIMEOUT_SECONDS", 300, time.Second, &c.ResumeTimeout},
 		{"CADENCE_UPDATE_INTERVAL_MS", 1000, time.Millisecond, &c.UpdateInterval},
 	}
@@ -137,6 +139,7 @@ func Load(get Lookup) (Config, error) {
 	}
 	c.BufferMs = max(1000, min(60_000, c.BufferMs))
 	c.UpdateInterval = max(250*time.Millisecond, c.UpdateInterval)
+	c.PauseFade = max(0, min(2*time.Second, c.PauseFade))
 	c.AudioCacheGB = max(1, min(1000, c.AudioCacheGB))
 	c.NormalizeLufs = max(-30, min(-5, c.NormalizeLufs))
 	for _, s := range strings.Split(str(get, "CADENCE_SEARCH_ORDER", "applemusic,spotify,deezer"), ",") {

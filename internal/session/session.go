@@ -28,6 +28,7 @@ type Deps struct {
 	Registry       *analysis.Registry
 	BufferFrames   int
 	PlayoutDelay   time.Duration
+	PauseFade      time.Duration
 	UpdateInterval time.Duration
 	Log            *slog.Logger
 	Loudness       player.LoudnessLookup
@@ -191,6 +192,7 @@ func (s *Session) Guild(id string, create bool) *Guild {
 		GuildID:      id,
 		BufferFrames: s.deps.BufferFrames,
 		PlayoutDelay: s.deps.PlayoutDelay,
+		PauseFade:    s.deps.PauseFade,
 		Open:         s.open,
 		Resolve:      s.deps.Resolver,
 		OnEvent:      func(e player.Event) { s.onEvent(g, e) },

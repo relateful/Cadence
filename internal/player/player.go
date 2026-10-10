@@ -27,6 +27,7 @@ type Config struct {
 	GuildID      string
 	BufferFrames int
 	PlayoutDelay time.Duration
+	PauseFade    time.Duration
 	Open         Opener
 	Resolve      Resolver
 	OnEvent      func(Event)
@@ -99,6 +100,8 @@ type Player struct {
 	rampFrom  float64
 	rampStart time.Time
 	pausedAt  time.Time
+	env       float64
+	fadingOut bool
 
 	loading     *source.Track
 	loadingFrom int64
@@ -116,6 +119,7 @@ func New(cfg Config) *Player {
 		ctx:        ctx,
 		cancel:     cancel,
 		volume:     100,
+		env:        1,
 		activeGain: 1,
 		incGain:    1,
 		outDsp:     audio.NewDeckDsp(),
@@ -177,6 +181,7 @@ func (p *Player) Play(t source.Track, startMs int64, paused bool) uint64 {
 	tr := t
 	p.loading, p.loadingFrom = &tr, startMs
 	p.paused = paused
+	p.env, p.fadingOut = 1, false
 	p.mu.Unlock()
 	if old != nil {
 		old.Close()
@@ -263,6 +268,7 @@ func (p *Player) Stop() {
 	wasLoading := p.takeLoadingLocked()
 	p.clearMixLocked()
 	p.active, p.activeInst = nil, 0
+	p.env, p.fadingOut = 1, false
 	p.mu.Unlock()
 	if d != nil {
 		d.Close()
@@ -284,8 +290,12 @@ func (p *Player) Pause(paused bool) {
 	defer p.mu.Unlock()
 	now := time.Now()
 	switch {
+	case paused && !p.paused && p.cfg.PauseFade > 0 && p.active != nil && p.env > 0:
+		p.fadingOut = true
 	case paused && !p.paused:
 		p.pausedAt = now
+	case !paused && p.paused && p.fadingOut:
+		p.fadingOut = false
 	case !paused && p.paused && !p.pausedAt.IsZero():
 		if !p.rampUntil.IsZero() {
 			held := now.Sub(p.pausedAt)
@@ -465,9 +475,40 @@ func (p *Player) gainLocked() float64 {
 func (p *Player) NextFrame(out *audio.Frame) (FrameInfo, bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.paused || p.active == nil {
+	if p.active == nil || (p.paused && !p.fadingOut) {
 		return FrameInfo{}, false
 	}
+	from := p.env
+	p.env = p.envelopeLocked()
+	info, ok := p.frameLocked(out)
+	if ok && (from != 1 || p.env != 1) {
+		audio.Ramp(out, from*from, p.env*p.env)
+	}
+	if p.fadingOut && p.env == 0 {
+		p.fadingOut = false
+		p.pausedAt = time.Now()
+	}
+	return info, ok
+}
+
+func (p *Player) envelopeLocked() float64 {
+	if p.cfg.PauseFade <= 0 {
+		return 1
+	}
+	step := float64(audio.FrameMs*time.Millisecond) / float64(p.cfg.PauseFade)
+	if p.paused {
+		if v := p.env - step; v > 1e-9 {
+			return v
+		}
+		return 0
+	}
+	if v := p.env + step; v < 1-1e-9 {
+		return v
+	}
+	return 1
+}
+
+func (p *Player) frameLocked(out *audio.Frame) (FrameInfo, bool) {
 	p.applyRampLocked()
 	p.expireAdoptionLocked()
 	p.releasePendingLocked()
