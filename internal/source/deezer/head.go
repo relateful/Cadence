@@ -190,6 +190,8 @@ func (d *Deezer) rangeFrom(ctx context.Context, u string, offset int64) (io.Read
 	if res.StatusCode == http.StatusPartialContent {
 		return res.Body, rangeTotal(res.Header.Get("Content-Range")), nil
 	}
+	metrics.RangeIgnored.Add(1)
+	d.log.Warn("cdn ignored a range request, re-downloading the skipped bytes", "offset", offset, "status", res.StatusCode)
 	if _, err := io.CopyN(io.Discard, res.Body, offset); err != nil {
 		res.Body.Close()
 		return nil, 0, fmt.Errorf("skip cached head: %w", err)

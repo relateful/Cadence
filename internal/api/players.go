@@ -252,7 +252,9 @@ func (s *Server) applyNext(g *session.Guild, next *trackField) (int, error) {
 		return http.StatusBadRequest, err
 	}
 	go func() {
-		if _, err := g.Player.SetNext(t); err != nil {
+		if _, err := g.Player.SetNext(t); errors.Is(err, player.ErrNextSuperseded) {
+			s.log.Debug("next track preload superseded", "guild", g.ID, "track", t.Key())
+		} else if err != nil {
 			s.log.Warn("next track could not be preloaded", "guild", g.ID, "track", t.Key(), "error", err)
 		}
 	}()

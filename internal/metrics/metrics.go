@@ -60,6 +60,7 @@ var (
 
 	AudioCacheBytes Counter
 	AudioCacheFiles Counter
+	RangeIgnored    Counter
 	StallMs         Counter
 )
 
@@ -79,6 +80,7 @@ func Write(w io.Writer, gauges []Gauge) {
 		Gauge{"cadence_send_stall_ms_total", "Milliseconds the send loop fell behind its 20ms schedule.", float64(StallMs.Load())},
 		Gauge{"cadence_audio_cache_bytes", "Bytes of audio held in the disk cache.", float64(AudioCacheBytes.Load())},
 		Gauge{"cadence_audio_cache_files", "Tracks held in the disk cache.", float64(AudioCacheFiles.Load())},
+		Gauge{"cadence_cdn_range_ignored_total", "Range requests the CDN answered with the whole file.", float64(RangeIgnored.Load())},
 	)
 	for _, g := range gauges {
 		fmt.Fprintf(w, "# HELP %s %s\n# TYPE %s gauge\n%s %g\n", g.Name, g.Help, g.Name, g.Name, g.Value)

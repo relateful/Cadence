@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -22,16 +23,17 @@ import (
 )
 
 const (
-	Name          = "soundcloud"
-	SearchPrefix  = "scsearch:"
-	searchLimit   = 10
-	idBatch       = 50
-	playlistLimit = 500
-	clientIDTTL   = 6 * time.Hour
-	trackCacheTTL = 10 * time.Minute
-	trackEntries  = 20_000
-	maxSegments   = 2_000
-	maxPlaylist   = 1 << 20
+	Name           = "soundcloud"
+	SearchPrefix   = "scsearch:"
+	searchLimit    = 10
+	idBatch        = 50
+	playlistLimit  = 500
+	clientIDTTL    = 6 * time.Hour
+	scrapeCooldown = time.Minute
+	trackCacheTTL  = 10 * time.Minute
+	trackEntries   = 20_000
+	maxSegments    = 2_000
+	maxPlaylist    = 1 << 20
 )
 
 var (
@@ -52,17 +54,20 @@ type Endpoints struct {
 var DefaultEndpoints = Endpoints{API: "https://api-v2.soundcloud.com", Web: "https://soundcloud.com"}
 
 type SoundCloud struct {
-	http      *httpx.Client
-	ep        Endpoints
-	fixedID   string
-	mu        sync.Mutex
-	clientID  string
-	idExpires time.Time
-	tracks    *cache.LRU[string, apiTrack]
+	http        *httpx.Client
+	ep          Endpoints
+	fixedID     string
+	mu          sync.Mutex
+	clientID    string
+	idExpires   time.Time
+	failedUntil time.Time
+	lastFailure error
+	log         *slog.Logger
+	tracks      *cache.LRU[string, apiTrack]
 }
 
-func New(client *httpx.Client, clientID string, ep Endpoints) *SoundCloud {
-	return &SoundCloud{http: client, ep: ep, fixedID: clientID, tracks: cache.New[string, apiTrack](trackEntries, trackCacheTTL)}
+func New(client *httpx.Client, clientID string, ep Endpoints, log *slog.Logger) *SoundCloud {
+	return &SoundCloud{http: client, ep: ep, fixedID: clientID, log: log.With("source", Name), tracks: cache.New[string, apiTrack](trackEntries, trackCacheTTL)}
 }
 
 func (s *SoundCloud) Name() string         { return Name }
@@ -157,15 +162,29 @@ func (t apiTrack) toTrack() source.Track {
 	}
 }
 
-func (s *SoundCloud) id(ctx context.Context, refresh bool) (string, error) {
+func (s *SoundCloud) id(ctx context.Context, rejected string) (string, error) {
 	if s.fixedID != "" {
 		return s.fixedID, nil
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if !refresh && s.clientID != "" && time.Now().Before(s.idExpires) {
+	if s.clientID != "" && s.clientID != rejected && time.Now().Before(s.idExpires) {
 		return s.clientID, nil
 	}
+	if time.Now().Before(s.failedUntil) {
+		return "", s.lastFailure
+	}
+	id, err := s.scrape(ctx)
+	if err != nil {
+		s.failedUntil, s.lastFailure = time.Now().Add(scrapeCooldown), err
+		s.log.Warn("could not find a client id, pausing scrapes", "cooldownSeconds", int(scrapeCooldown.Seconds()), "error", err)
+		return "", err
+	}
+	s.clientID, s.idExpires, s.failedUntil = id, time.Now().Add(clientIDTTL), time.Time{}
+	return id, nil
+}
+
+func (s *SoundCloud) scrape(ctx context.Context) (string, error) {
 	page, err := s.http.Get(ctx, s.ep.Web+"/", nil)
 	if err != nil {
 		return "", source.Classify(Name, err)
@@ -174,22 +193,24 @@ func (s *SoundCloud) id(ctx context.Context, refresh bool) (string, error) {
 	for i := len(scripts) - 1; i >= 0; i-- {
 		js, err := s.http.Get(ctx, scripts[i][1], nil)
 		if err != nil {
+			s.log.Debug("web player script unavailable", "script", scripts[i][1], "error", err)
 			continue
 		}
 		if m := clientIDPattern.FindSubmatch(js); m != nil {
-			s.clientID, s.idExpires = string(m[1]), time.Now().Add(clientIDTTL)
-			return s.clientID, nil
+			return string(m[1]), nil
 		}
 	}
 	return "", source.Fail(source.SeveritySuspicious, Name, "client id unavailable", ErrNoClientID)
 }
 
 func (s *SoundCloud) api(ctx context.Context, path string, q url.Values, out any) error {
+	rejected := ""
 	for attempt := 0; attempt < 2; attempt++ {
-		id, err := s.id(ctx, attempt > 0)
+		id, err := s.id(ctx, rejected)
 		if err != nil {
 			return err
 		}
+		rejected = id
 		if q == nil {
 			q = url.Values{}
 		}

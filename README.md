@@ -153,7 +153,7 @@ All routes require `Authorization: <CADENCE_PASSWORD>`. The shape follows Lavali
 | `GET` | `/v1/loadtracks?identifier=` | Resolve a link, a prefixed search, an ISRC or plain text |
 | `GET` | `/v1/decodetrack?encodedTrack=` | Decode one track |
 | `POST` | `/v1/decodetracks` | Decode many tracks |
-| `POST` | `/v1/prefetch` | `{ "tracks": ["…"] }` (up to 10). Preload the start of upcoming tracks so they play instantly |
+| `POST` | `/v1/prefetch` (also `/v4/prefetch`) | `{ "tracks": ["…"] }` (up to 10). Preload the start of upcoming tracks so they play instantly |
 | `PATCH` | `/v1/sessions/{session}` | `{ "resuming": true, "timeout": 300 }` |
 | `GET` | `/v1/sessions/{session}/players` | All players |
 | `GET` / `PATCH` / `DELETE` | `/v1/sessions/{session}/players/{guild}` | Read, update or destroy a player |
@@ -178,7 +178,7 @@ PATCH /v1/sessions/{session}/players/{guild}?noReplace=false
 }
 ```
 
-Send `"track": { "encoded": null }` to stop. The voice and track updates can arrive in **any order**. A track sent before voice simply waits, without its clock moving.
+Send `"track": { "encoded": null }` to stop. Two more fields work on both `/v1` and `/v4`: `"bitrate": 128000` sets the Opus bitrate (16–384 kbps) and is remembered across voice updates, and `"nextTrack": { "encoded": "…" }` preloads the next track so it starts on the exact frame the current one ends (`{ "encoded": null }` clears it). The voice and track updates can arrive in **any order**. A track sent before voice simply waits, without its clock moving.
 
 ### Events
 
@@ -227,6 +227,8 @@ Like Spotify, Cadence keeps the first ~12 seconds of upcoming tracks ready, so p
 - On play, a preloaded track starts decoding immediately while the rest is fetched in the background. A track that wasn't preloaded plays the normal way.
 - `cadence_prefetch_total{outcome}` on `/metrics` counts `queued`, `hit`, `miss`, `failed` and `dropped`.
 - **Disk cache.** With `CADENCE_AUDIO_CACHE_DIR` set, a track played a second time within 7 days, in any server, is saved to disk as it plays. From then on it starts and seeks with no Deezer requests at all. Only complete downloads are kept, and the cache never grows past `CADENCE_AUDIO_CACHE_GB`. See `cadence_audio_cache_total{outcome}`, `cadence_audio_cache_bytes` and `cadence_audio_cache_files`.
+- **Seeks** of 10 seconds or more fetch from the target with one range request, or read the disk cache with none, and stay frame-accurate. `cadence_seek_total{outcome}` counts `range`, `disk` and `fallback` (a full stream, for a track whose layout cannot be proven). `cadence_cdn_range_ignored_total` counts range requests the CDN answered with the whole file.
+- **Fallback source.** `cadence_fallback_total{kind}` counts searches (`search`) and Spotify/Apple mirrors (`mirror`) that SoundCloud answered because Deezer had nothing.
 
 ## Mixing
 

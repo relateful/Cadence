@@ -260,7 +260,11 @@ func (r *Resolver) mirror(ctx context.Context, t Track) (Track, error) {
 			if fbHit, found := BestMatch(t, fbCandidates); found {
 				metrics.Fallback.Inc("mirror")
 				r.log.Info("mirrored to the fallback source", "track", key, "fallback", r.fallback.Name(), "match", fbHit.Key())
-				r.mirrors.Set(key, mirrorEntry{track: fbHit, ok: true})
+				if err != nil {
+					r.mirrors.SetFor(key, mirrorEntry{track: fbHit, ok: true}, missCacheTTL)
+				} else {
+					r.mirrors.Set(key, mirrorEntry{track: fbHit, ok: true})
+				}
 				return fbHit, nil
 			}
 		} else {

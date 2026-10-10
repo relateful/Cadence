@@ -9,15 +9,23 @@ import (
 
 var adoptWindow = 5 * time.Second
 
-var ErrNothingPlaying = errors.New("nothing is playing to queue a next track behind")
+var (
+	ErrNothingPlaying = errors.New("nothing is playing to queue a next track behind")
+	ErrNextSuperseded = errors.New("a newer next-track request or a new track replaced this one")
+)
 
 type adoption struct {
 	encoded string
 	inst    uint64
 	until   time.Time
+	audible *Event
 }
 
 func (p *Player) SetNext(t source.Track) (uint64, error) {
+	p.mu.Lock()
+	p.nextGen++
+	gen := p.nextGen
+	p.mu.Unlock()
 	playable, err := p.resolve(t)
 	if err != nil {
 		return 0, err
@@ -26,6 +34,9 @@ func (p *Player) SetNext(t source.Track) (uint64, error) {
 	defer p.mu.Unlock()
 	if p.ctx.Err() != nil {
 		return 0, p.ctx.Err()
+	}
+	if gen != p.nextGen {
+		return 0, ErrNextSuperseded
 	}
 	if p.active == nil && p.loading == nil {
 		return 0, ErrNothingPlaying
@@ -41,6 +52,11 @@ func (p *Player) SetNext(t source.Track) (uint64, error) {
 func (p *Player) ClearNext() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	p.nextGen++
+	p.dropNextLocked()
+}
+
+func (p *Player) dropNextLocked() {
 	if p.next != nil {
 		p.next.Close()
 		p.next, p.nextInst = nil, 0
@@ -49,7 +65,11 @@ func (p *Player) ClearNext() {
 
 func (p *Player) gaplessLocked() bool {
 	d := p.active
-	if p.next == nil || d == nil || !d.Ended() || d.Failure() != nil || p.pending != nil || p.fade != nil {
+	if p.next == nil || d == nil || !d.Ended() || d.Failure() != nil {
+		return false
+	}
+	if p.pending != nil || p.fade != nil || p.next.Failure() != nil {
+		p.dropNextLocked()
 		return false
 	}
 	oldInst := p.activeInst
@@ -62,6 +82,13 @@ func (p *Player) gaplessLocked() bool {
 	return true
 }
 
+func (p *Player) announceLocked(a *adoption) {
+	p.emit(trackEvent(EventTrackStart, p.active, a.inst))
+	if a.audible != nil {
+		p.emit(*a.audible)
+	}
+}
+
 func (p *Player) adoptLocked(t source.Track, startMs int64, paused bool) (uint64, bool) {
 	a := p.adopt
 	if a == nil || startMs != 0 || p.activeInst != a.inst || t.Encode() != a.encoded || time.Now().After(a.until) {
@@ -69,7 +96,7 @@ func (p *Player) adoptLocked(t source.Track, startMs int64, paused bool) (uint64
 	}
 	p.adopt = nil
 	p.paused = paused
-	p.emit(trackEvent(EventTrackStart, p.active, a.inst))
+	p.announceLocked(a)
 	return a.inst, true
 }
 
@@ -80,6 +107,6 @@ func (p *Player) expireAdoptionLocked() {
 	}
 	p.adopt = nil
 	if p.active != nil && p.activeInst == a.inst {
-		p.emit(trackEvent(EventTrackStart, p.active, a.inst))
+		p.announceLocked(a)
 	}
 }

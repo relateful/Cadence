@@ -34,7 +34,7 @@ func (s *Server) routesV4(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /v4/sessions/{session}/players/{guild}", s.auth(s.deletePlayer))
 	mux.HandleFunc("POST /v4/sessions/{session}/players/{guild}/mix/deckb", s.auth(s.loadDeckB))
 	mux.HandleFunc("POST /v4/sessions/{session}/players/{guild}/mix/crossfade", s.auth(s.crossfade))
-	mux.HandleFunc("POST /v4/sessions/{session}/players/{guild}/mix/analyze", s.auth(s.analyzeDeckV4))
+	mux.HandleFunc("POST /v4/sessions/{session}/players/{guild}/mix/analyze", s.auth(s.analyzeDeck))
 	mux.HandleFunc("DELETE /v4/sessions/{session}/players/{guild}/mix", s.auth(s.cancelMix))
 	mux.HandleFunc("POST /v4/sessions/{session}/mix/analyzetrack", s.auth(s.analyzeTrack))
 	mux.HandleFunc("GET /v4/mix/analysis/{source}/{identifier}", s.auth(s.getAnalysis))
@@ -160,7 +160,7 @@ func (s *Server) updatePlayerV4(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, sess.PlayerV4(g))
 }
 
-func (s *Server) analyzeDeckV4(w http.ResponseWriter, r *http.Request) {
+func (s *Server) analyzeDeck(w http.ResponseWriter, r *http.Request) {
 	sess, g, ok := s.guild(w, r, false)
 	if !ok {
 		return

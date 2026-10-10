@@ -84,9 +84,9 @@ func (c *Client) Do(req *http.Request) (*http.Response, error) {
 			return res, nil
 		}
 		if req.Context().Err() != nil || (req.Body != nil && req.GetBody == nil) {
-			return nil, err
+			return nil, scrub(err)
 		}
-		c.markProxyFailed(err)
+		c.markProxyFailed(scrub(err))
 		if req.GetBody != nil {
 			body, berr := req.GetBody()
 			if berr != nil {
@@ -95,7 +95,8 @@ func (c *Client) Do(req *http.Request) (*http.Response, error) {
 			req.Body = body
 		}
 	}
-	return c.direct.Do(req)
+	res, err := c.direct.Do(req)
+	return res, scrub(err)
 }
 
 type StatusError struct {
@@ -147,7 +148,7 @@ func (c *Client) read(req *http.Request) ([]byte, error) {
 		if len(snippet) > 300 {
 			snippet = snippet[:300]
 		}
-		return nil, &StatusError{Status: res.StatusCode, URL: req.URL.Redacted(), Body: snippet}
+		return nil, &StatusError{Status: res.StatusCode, URL: SafeURL(req.URL), Body: snippet}
 	}
 	return body, nil
 }
@@ -159,7 +160,32 @@ func (c *Client) Stream(ctx context.Context, req *http.Request) (*http.Response,
 	}
 	if res.StatusCode >= 300 {
 		res.Body.Close()
-		return nil, &StatusError{Status: res.StatusCode, URL: req.URL.Redacted()}
+		return nil, &StatusError{Status: res.StatusCode, URL: SafeURL(req.URL)}
 	}
 	return res, nil
+}
+
+func SafeURL(u *url.URL) string {
+	if u == nil {
+		return ""
+	}
+	clean := *u
+	clean.User = nil
+	if clean.RawQuery != "" {
+		clean.RawQuery = "redacted"
+	}
+	clean.Fragment = ""
+	return clean.String()
+}
+
+func scrub(err error) error {
+	var ue *url.Error
+	if errors.As(err, &ue) {
+		if parsed, perr := url.Parse(ue.URL); perr == nil {
+			ue.URL = SafeURL(parsed)
+		} else {
+			ue.URL = "(unparseable url)"
+		}
+	}
+	return err
 }

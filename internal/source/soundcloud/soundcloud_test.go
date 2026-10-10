@@ -21,6 +21,7 @@ const testClientID = "abcdefghijklmnopqrstuvwxyz123456"
 type fake struct {
 	srv          *httptest.Server
 	rejectFirst  atomic.Bool
+	webDown      atomic.Bool
 	scrapes      atomic.Int32
 	audio, seg0  string
 	seg1         string
@@ -55,6 +56,10 @@ func newFake(t *testing.T) (*fake, *SoundCloud) {
 			return
 		}
 		f.scrapes.Add(1)
+		if f.webDown.Load() {
+			http.Error(w, "down", http.StatusBadGateway)
+			return
+		}
 		fmt.Fprintf(w, `<html><script crossorigin src="%s/assets/0-vendor.js"></script><script crossorigin src="%s/assets/49-app.js"></script></html>`, base, base)
 	})
 	mux.HandleFunc("/assets/0-vendor.js", func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, "var nothing=1;") })
@@ -120,7 +125,7 @@ func newFake(t *testing.T) (*fake, *SoundCloud) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return f, New(client, "", Endpoints{API: base, Web: base})
+	return f, New(client, "", Endpoints{API: base, Web: base}, slog.New(slog.NewTextHandler(io.Discard, nil)))
 }
 
 func TestSearchScrapesClientIDAndDropsPreviews(t *testing.T) {
@@ -188,5 +193,18 @@ func TestLinksAndSetsResolve(t *testing.T) {
 	set, err := sc.LoadURL(context.Background(), "https://soundcloud.com/a/sets/s")
 	if err != nil || set.Type != source.LoadPlaylist || len(set.Tracks) != 2 || set.Playlist.Name != "My Set" {
 		t.Fatalf("set %+v %v", set, err)
+	}
+}
+
+func TestFailedScrapeIsNotRetriedDuringTheCooldown(t *testing.T) {
+	f, sc := newFake(t)
+	f.webDown.Store(true)
+	for i := 0; i < 3; i++ {
+		if _, err := sc.Search(context.Background(), "song"); err == nil {
+			t.Fatal("search succeeded without a client id")
+		}
+	}
+	if f.scrapes.Load() != 1 {
+		t.Fatalf("scraped %d times during the cooldown, want 1", f.scrapes.Load())
 	}
 }

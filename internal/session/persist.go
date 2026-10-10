@@ -68,7 +68,6 @@ func (m *Manager) snapshot() savedState {
 
 func (m *Manager) Save(path string) (int, error) {
 	st := m.snapshot()
-	m.quiet.Store(true)
 	raw, err := json.Marshal(st)
 	if err != nil {
 		return 0, err
@@ -84,6 +83,7 @@ func (m *Manager) Save(path string) (int, error) {
 		os.Remove(tmp)
 		return 0, err
 	}
+	m.quiet.Store(true)
 	return len(st.Sessions), nil
 }
 

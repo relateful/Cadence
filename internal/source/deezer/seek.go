@@ -45,7 +45,7 @@ type mp3Layout struct {
 
 type frameHeader struct {
 	bitrate, rate, size int
-	mono                bool
+	mono, crc           bool
 }
 
 func parseFrameHeader(b []byte) (frameHeader, bool) {
@@ -57,7 +57,7 @@ func parseFrameHeader(b []byte) (frameHeader, bool) {
 		return frameHeader{}, false
 	}
 	pad := int(b[2]>>1) & 1
-	return frameHeader{bitrate: br, rate: sr, size: 144*br*1000/sr + pad, mono: b[3]>>6 == 3}, true
+	return frameHeader{bitrate: br, rate: sr, size: 144*br*1000/sr + pad, mono: b[3]>>6 == 3, crc: b[1]&1 == 0}, true
 }
 
 func parseLayout(p []byte) (mp3Layout, error) {
@@ -78,6 +78,9 @@ func parseLayout(p []byte) (mp3Layout, error) {
 	side := 32
 	if h.mono {
 		side = 17
+	}
+	if h.crc {
+		side += 2
 	}
 	if tag := string(p[start+4+side : start+8+side]); tag == "Xing" {
 		return mp3Layout{}, fmt.Errorf("%w: xing vbr header", errNotCBR)

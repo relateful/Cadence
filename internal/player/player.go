@@ -105,6 +105,7 @@ type Player struct {
 	next     *Deck
 	nextInst uint64
 	adopt    *adoption
+	nextGen  uint64
 }
 
 func New(cfg Config) *Player {
@@ -235,6 +236,7 @@ func (p *Player) clearMixLocked() {
 	}
 	p.incoming, p.cued, p.pending, p.fade = nil, nil, nil, nil
 	p.next, p.nextInst = nil, 0
+	p.nextGen++
 	p.incGain = 1
 	p.activeGain = 1
 	p.rampUntil = time.Time{}
@@ -277,7 +279,7 @@ func (p *Player) SetVolume(v int) {
 func (p *Player) SetFilters(f Filters) {
 	p.mu.Lock()
 	p.filters = f
-	for _, d := range []*Deck{p.active, p.incoming, p.cued} {
+	for _, d := range []*Deck{p.active, p.incoming, p.cued, p.next} {
 		if d != nil {
 			d.SetFilters(f)
 		}
@@ -368,7 +370,7 @@ func (p *Player) StartCrossfade(req CrossfadeRequest) error {
 func (p *Player) beginFadeLocked(deck *Deck, inst uint64, durationMs int, curve audio.FadeCurve, profile audio.TransitionProfile, gain float64) {
 	p.pending = nil
 	p.profile = profile
-	if deck.measured && p.active != nil && p.active.measured {
+	if deck.measured {
 		gain = 1
 	}
 	p.incGain = gain
@@ -545,13 +547,19 @@ func (p *Player) Sent(info FrameInfo, at time.Time) {
 	if first {
 		p.audible = map[uint64]bool{info.Instance: true}
 	}
-	var tr *source.Track
+	var audible *Event
 	if first && p.active != nil && p.activeInst == info.Instance {
-		tr = p.activeTrackLocked()
+		tr := p.activeTrackLocked()
+		ev := Event{Type: EventTrackAudible, Track: tr, Encoded: tr.Encode(), Instance: info.Instance, PositionMs: int64(info.PositionMs), SentAt: at.UnixMilli(), AudibleAt: at.Add(p.cfg.PlayoutDelay).UnixMilli()}
+		if p.adopt != nil && p.adopt.inst == info.Instance {
+			p.adopt.audible = &ev
+		} else {
+			audible = &ev
+		}
 	}
 	p.mu.Unlock()
-	if first && tr != nil {
-		p.emit(Event{Type: EventTrackAudible, Track: tr, Encoded: tr.Encode(), Instance: info.Instance, PositionMs: int64(info.PositionMs), SentAt: at.UnixMilli(), AudibleAt: at.Add(p.cfg.PlayoutDelay).UnixMilli()})
+	if audible != nil {
+		p.emit(*audible)
 	}
 }
 

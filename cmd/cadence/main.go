@@ -106,7 +106,7 @@ func run() error {
 		spotify.New(clients[spotify.Name], cfg.SpotifyID, cfg.SpotifySecret),
 	)
 	if cfg.SoundCloudEnabled {
-		resolver.UseFallback(soundcloud.New(clients[soundcloud.Name], cfg.SoundCloudID, soundcloud.DefaultEndpoints))
+		resolver.UseFallback(soundcloud.New(clients[soundcloud.Name], cfg.SoundCloudID, soundcloud.DefaultEndpoints, log))
 	}
 
 	registry := analysis.NewRegistry()
