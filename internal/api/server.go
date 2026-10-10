@@ -49,7 +49,9 @@ type Deps struct {
 }
 
 func New(d Deps) *Server {
-	return &Server{password: d.Password, sessions: d.Sessions, resolver: d.Resolver, registry: d.Registry, offline: d.Offline, resumeTimeout: d.ResumeTimeout, bitrate: d.Bitrate, started: time.Now(), log: d.Log.With("component", "api")}
+	s := &Server{password: d.Password, sessions: d.Sessions, resolver: d.Resolver, registry: d.Registry, offline: d.Offline, resumeTimeout: d.ResumeTimeout, bitrate: d.Bitrate, started: time.Now(), log: d.Log.With("component", "api")}
+	d.Sessions.SetStats(s.statsSnapshotV4)
+	return s
 }
 
 type apiError struct {
@@ -96,7 +98,8 @@ func (s *Server) auth(next http.HandlerFunc) http.HandlerFunc {
 
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /v1/websocket", s.websocket)
+	mux.HandleFunc("GET /v1/websocket", s.websocket(session.ProtocolV1))
+	s.routesV4(mux)
 	mux.HandleFunc("GET /v1/info", s.auth(s.info))
 	mux.HandleFunc("GET /v1/stats", s.auth(s.stats))
 	mux.HandleFunc("GET /v1/clock", s.auth(s.clock))
@@ -329,12 +332,16 @@ func (s *Server) updateSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Resuming *bool `json:"resuming"`
-		Timeout  *int  `json:"timeout"`
+		Resuming      *bool `json:"resuming"`
+		Timeout       *int  `json:"timeout"`
+		CadenceEvents *bool `json:"cadenceEvents"`
 	}
 	if err := decode(r, &body); err != nil {
 		fail(w, r, http.StatusBadRequest, err.Error())
 		return
+	}
+	if body.CadenceEvents != nil {
+		sess.SetCadenceEvents(*body.CadenceEvents)
 	}
 	resuming, timeout := sess.Settings()
 	if body.Resuming != nil {

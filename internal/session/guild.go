@@ -20,6 +20,9 @@ type Guild struct {
 	conn    atomic.Pointer[voice.Conn]
 	server  voice.Server
 	log     *slog.Logger
+
+	userEncoded string
+	userData    map[string]any
 }
 
 func (g *Guild) live() *voice.Conn {

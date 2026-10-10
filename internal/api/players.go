@@ -48,20 +48,22 @@ func (s *Server) getPlayer(w http.ResponseWriter, r *http.Request) {
 }
 
 type trackField struct {
-	Encoded *string `json:"encoded"`
-	set     bool
+	Encoded  *string        `json:"encoded"`
+	UserData map[string]any `json:"userData"`
+	set      bool
 }
 
 func (t *trackField) UnmarshalJSON(raw []byte) error {
 	t.set = true
 	type plain struct {
-		Encoded *string `json:"encoded"`
+		Encoded  *string        `json:"encoded"`
+		UserData map[string]any `json:"userData"`
 	}
 	var p plain
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return err
 	}
-	t.Encoded = p.Encoded
+	t.Encoded, t.UserData = p.Encoded, p.UserData
 	return nil
 }
 
@@ -94,6 +96,14 @@ func (s *Server) updatePlayer(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
+	if status, err := s.applyPatch(sess, g, p, r.URL.Query().Get("noReplace") == "true"); err != nil {
+		fail(w, r, status, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, sess.Update(g))
+}
+
+func (s *Server) applyPatch(sess *session.Session, g *session.Guild, p playerPatch, noReplace bool) (int, error) {
 	if p.Analyze != nil {
 		if *p.Analyze {
 			g.Player.SetAnalysis(sess.AnalysisTap)
@@ -114,19 +124,16 @@ func (s *Server) updatePlayer(w http.ResponseWriter, r *http.Request) {
 		}
 		server := voice.Server{GuildID: g.ID, UserID: sess.UserID, ChannelID: p.Voice.ChannelID, SessionID: p.Voice.SessionID, Token: p.Voice.Token, Endpoint: p.Voice.Endpoint, Bitrate: bitrate}
 		if err := g.UpdateVoice(server); err != nil {
-			fail(w, r, http.StatusBadRequest, err.Error())
-			return
+			return http.StatusBadRequest, err
 		}
 	}
-	noReplace := r.URL.Query().Get("noReplace") == "true"
 	switch {
 	case p.Track != nil && p.Track.set && p.Track.Encoded == nil:
 		g.Player.Stop()
 	case p.Track != nil && p.Track.Encoded != nil:
 		t, err := source.DecodeTrack(*p.Track.Encoded)
 		if err != nil {
-			fail(w, r, http.StatusBadRequest, err.Error())
-			return
+			return http.StatusBadRequest, err
 		}
 		if noReplace && g.Player.State().Track != nil {
 			break
@@ -136,6 +143,7 @@ func (s *Server) updatePlayer(w http.ResponseWriter, r *http.Request) {
 			start = max(0, *p.Position)
 		}
 		paused := p.Paused != nil && *p.Paused
+		g.SetUserData(t.Encode(), p.Track.UserData)
 		g.Player.Play(t, start, paused)
 		p.Position, p.Paused = nil, nil
 	}
@@ -144,11 +152,10 @@ func (s *Server) updatePlayer(w http.ResponseWriter, r *http.Request) {
 	}
 	if p.Position != nil {
 		if err := g.Player.SeekTo(*p.Position); err != nil && !errors.Is(err, player.ErrNothingToMix) {
-			fail(w, r, http.StatusConflict, err.Error())
-			return
+			return http.StatusConflict, err
 		}
 	}
-	writeJSON(w, http.StatusOK, sess.Update(g))
+	return http.StatusOK, nil
 }
 
 func (s *Server) deletePlayer(w http.ResponseWriter, r *http.Request) {

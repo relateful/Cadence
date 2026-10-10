@@ -95,6 +95,9 @@ type Player struct {
 	rampUntil time.Time
 	rampFrom  float64
 	rampStart time.Time
+
+	loading     *source.Track
+	loadingFrom int64
 }
 
 func New(cfg Config) *Player {
@@ -153,15 +156,20 @@ func (p *Player) Play(t source.Track, startMs int64, paused bool) uint64 {
 	p.instance++
 	inst := p.instance
 	old, oldInst := p.active, p.activeInst
+	wasLoading := p.takeLoadingLocked()
 	p.clearMixLocked()
 	p.active, p.activeInst = nil, inst
+	tr := t
+	p.loading, p.loadingFrom = &tr, startMs
 	p.paused = paused
 	p.mu.Unlock()
 	if old != nil {
 		old.Close()
 		p.emit(Event{Type: EventTrackEnd, Track: &old.Track, Encoded: old.Track.Encode(), Instance: oldInst, Reason: EndReplaced})
 	}
-	tr := t
+	if wasLoading != nil {
+		p.emit(Event{Type: EventTrackEnd, Track: wasLoading, Encoded: wasLoading.Encode(), Instance: oldInst, Reason: EndReplaced})
+	}
 	p.emit(Event{Type: EventTrackLoading, Track: &tr, Encoded: tr.Encode(), Instance: inst})
 	go p.load(t, startMs, inst)
 	return inst
@@ -174,6 +182,7 @@ func (p *Player) load(t source.Track, startMs int64, inst uint64) {
 		p.mu.Unlock()
 		return
 	}
+	p.loading = nil
 	if err != nil {
 		p.activeInst = 0
 		p.mu.Unlock()
@@ -220,6 +229,7 @@ func (p *Player) clearMixLocked() {
 func (p *Player) Stop() {
 	p.mu.Lock()
 	d, inst := p.active, p.activeInst
+	wasLoading := p.takeLoadingLocked()
 	p.clearMixLocked()
 	p.active, p.activeInst = nil, 0
 	p.mu.Unlock()
@@ -227,6 +237,15 @@ func (p *Player) Stop() {
 		d.Close()
 		p.emit(Event{Type: EventTrackEnd, Track: &d.Track, Encoded: d.Track.Encode(), Instance: inst, Reason: EndStopped})
 	}
+	if wasLoading != nil {
+		p.emit(Event{Type: EventTrackEnd, Track: wasLoading, Encoded: wasLoading.Encode(), Instance: inst, Reason: EndStopped})
+	}
+}
+
+func (p *Player) takeLoadingLocked() *source.Track {
+	t := p.loading
+	p.loading = nil
+	return t
 }
 
 func (p *Player) Pause(paused bool) {
@@ -554,6 +573,9 @@ func (p *Player) State() State {
 		t, pl := p.active.Track, p.active.Playable
 		s.Track, s.Playable = &t, &pl
 		s.PositionMs = p.active.PositionMs()
+	} else if p.loading != nil {
+		t := *p.loading
+		s.Track, s.PositionMs = &t, p.loadingFrom
 	}
 	s.Rate = rate
 	if p.last.instance == p.activeInst && !p.last.at.IsZero() {
@@ -581,12 +603,16 @@ func (p *Player) State() State {
 func (p *Player) Destroy() {
 	p.mu.Lock()
 	d, inst := p.active, p.activeInst
+	wasLoading := p.takeLoadingLocked()
 	p.clearMixLocked()
 	p.active = nil
 	p.mu.Unlock()
 	if d != nil {
 		d.Close()
 		p.emit(Event{Type: EventTrackEnd, Track: &d.Track, Encoded: d.Track.Encode(), Instance: inst, Reason: EndCleanup})
+	}
+	if wasLoading != nil {
+		p.emit(Event{Type: EventTrackEnd, Track: wasLoading, Encoded: wasLoading.Encode(), Instance: inst, Reason: EndCleanup})
 	}
 	p.cancel()
 	p.events.close()

@@ -14,7 +14,11 @@ const (
 	writeTimeout = 10 * time.Second
 )
 
-func (s *Server) websocket(w http.ResponseWriter, r *http.Request) {
+func (s *Server) websocket(protocol session.Protocol) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) { s.serveSocket(w, r, protocol) }
+}
+
+func (s *Server) serveSocket(w http.ResponseWriter, r *http.Request, protocol session.Protocol) {
 	if !s.authorized(r) {
 		fail(w, r, http.StatusUnauthorized, "missing or wrong Authorization header")
 		return
@@ -30,13 +34,13 @@ func (s *Server) websocket(w http.ResponseWriter, r *http.Request) {
 		out     <-chan []byte
 		resumed bool
 	)
-	if candidate, ok := s.sessions.Resume(r.Header.Get("Session-Id"), userID); ok {
+	if candidate, ok := s.sessions.Resume(r.Header.Get("Session-Id"), userID); ok && candidate.Protocol == protocol {
 		if ch, wasResumed, err := candidate.Attach(); err == nil {
 			sess, out, resumed = candidate, ch, wasResumed
 		}
 	}
 	if sess == nil {
-		sess = s.sessions.Create(userID, client, s.resumeTimeout)
+		sess = s.sessions.Create(userID, client, s.resumeTimeout, protocol)
 		ch, _, err := sess.Attach()
 		if err != nil {
 			fail(w, r, http.StatusInternalServerError, err.Error())

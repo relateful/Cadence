@@ -8,9 +8,11 @@ import (
 	"errors"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/greed/cadence/internal/analysis"
+	"github.com/greed/cadence/internal/lavalink"
 	"github.com/greed/cadence/internal/metrics"
 	"github.com/greed/cadence/internal/player"
 	"github.com/greed/cadence/internal/source"
@@ -34,6 +36,7 @@ type Session struct {
 	ID         string
 	UserID     string
 	ClientName string
+	Protocol   Protocol
 	manager    *Manager
 	deps       Deps
 	log        *slog.Logger
@@ -49,6 +52,7 @@ type Session struct {
 	expiry     *time.Timer
 	guilds     map[string]*Guild
 	stop       chan struct{}
+	extras     atomic.Bool
 }
 
 func newID() string {
@@ -226,6 +230,11 @@ func (s *Session) onEvent(g *Guild, e player.Event) {
 	case player.EventSendStall:
 		metrics.StallMs.Add(e.StallMs)
 	}
+	if s.Protocol == ProtocolV4 {
+		s.eventV4(g, e)
+		s.send(s.updateV4(g))
+		return
+	}
 	s.send(e)
 	s.send(s.Update(g))
 }
@@ -258,13 +267,28 @@ func (s *Session) Update(g *Guild) PlayerUpdate {
 func (s *Session) updates() {
 	t := time.NewTicker(s.deps.UpdateInterval)
 	defer t.Stop()
+	stats := time.NewTicker(statsInterval)
+	defer stats.Stop()
+	if s.Protocol == ProtocolV4 {
+		s.sendStats()
+	}
 	for {
 		select {
 		case <-s.stop:
 			return
+		case <-stats.C:
+			if s.Protocol == ProtocolV4 {
+				s.sendStats()
+			}
 		case <-t.C:
 			for _, g := range s.Guilds() {
-				if st := g.Player.State(); st.Track != nil && !st.Paused {
+				st := g.Player.State()
+				if st.Track == nil || st.Paused {
+					continue
+				}
+				if s.Protocol == ProtocolV4 {
+					s.send(s.updateV4(g))
+				} else {
 					s.send(s.Update(g))
 				}
 			}
@@ -293,17 +317,23 @@ type Manager struct {
 	mu       sync.Mutex
 	sessions map[string]*Session
 	deps     Deps
+	stats    func() lavalink.Stats
+}
+
+func (m *Manager) SetStats(fn func() lavalink.Stats) {
+	m.stats = fn
 }
 
 func NewManager(deps Deps) *Manager {
 	return &Manager{sessions: map[string]*Session{}, deps: deps}
 }
 
-func (m *Manager) Create(userID, clientName string, resumeTimeout time.Duration) *Session {
+func (m *Manager) Create(userID, clientName string, resumeTimeout time.Duration, protocol Protocol) *Session {
 	s := &Session{
 		ID:         newID(),
 		UserID:     userID,
 		ClientName: clientName,
+		Protocol:   protocol,
 		manager:    m,
 		deps:       m.deps,
 		timeout:    resumeTimeout,

@@ -118,6 +118,8 @@ Encoded tracks are plain base64url JSON, so **any Cadence node can play any trac
 
 All routes require `Authorization: <CADENCE_PASSWORD>`. The shape follows Lavalink v4 closely, under `/v1`.
 
+**Drop-in Lavalink v4.** Cadence also speaks Lavalink's own v4 protocol (`/v4/websocket`, `/v4/loadtracks`, `/v4/sessions/…`, `/version`), so an existing bot using a Lavalink client such as `lavalink-client` can point at Cadence without code changes. On v4 connections only Lavalink's standard events are sent. To also receive Cadence's extras (`TrackAudibleEvent`, mix events, stalls), send `PATCH /v4/sessions/{id} {"cadenceEvents": true}` after checking that `/v4/info` reports `"wireClock": true`.
+
 ### WebSocket
 
 `GET /v1/websocket` with headers `User-Id` (your bot's ID) and `Client-Name`. To resume a session, also send `Session-Id`.
