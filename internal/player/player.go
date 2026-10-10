@@ -98,6 +98,7 @@ type Player struct {
 	rampUntil time.Time
 	rampFrom  float64
 	rampStart time.Time
+	pausedAt  time.Time
 
 	loading     *source.Track
 	loadingFrom int64
@@ -280,8 +281,20 @@ func (p *Player) takeLoadingLocked() *source.Track {
 
 func (p *Player) Pause(paused bool) {
 	p.mu.Lock()
+	defer p.mu.Unlock()
+	now := time.Now()
+	switch {
+	case paused && !p.paused:
+		p.pausedAt = now
+	case !paused && p.paused && !p.pausedAt.IsZero():
+		if !p.rampUntil.IsZero() {
+			held := now.Sub(p.pausedAt)
+			p.rampStart = p.rampStart.Add(held)
+			p.rampUntil = p.rampUntil.Add(held)
+		}
+		p.pausedAt = time.Time{}
+	}
 	p.paused = paused
-	p.mu.Unlock()
 }
 
 func (p *Player) SetVolume(v int) {
