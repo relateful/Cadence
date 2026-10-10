@@ -140,6 +140,13 @@ func run() error {
 	}
 	sessions := session.NewManager(deps)
 	server := api.New(api.Deps{Password: cfg.Password, Sessions: sessions, Resolver: resolver, Registry: registry, Offline: offline, ResumeTimeout: cfg.ResumeTimeout, Bitrate: cfg.Bitrate, Log: log})
+	if cfg.StateFile != "" {
+		if rep, err := sessions.Restore(cfg.StateFile); err != nil {
+			log.Error("could not restore saved sessions", "file", cfg.StateFile, "error", err)
+		} else if rep.Sessions+rep.Skipped > 0 {
+			log.Info("restored sessions from the last shutdown", "sessions", rep.Sessions, "players", rep.Players, "expired", rep.Skipped, "ageMs", rep.Age.Milliseconds())
+		}
+	}
 
 	httpServer := &http.Server{Addr: cfg.Address, Handler: server.Handler(), ReadHeaderTimeout: 10 * time.Second}
 	errs := make(chan error, 1)
@@ -160,6 +167,13 @@ func run() error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), shutdownGrace)
 	defer cancel()
+	if cfg.StateFile != "" {
+		if n, err := sessions.Save(cfg.StateFile); err != nil {
+			log.Error("could not save sessions for resume", "file", cfg.StateFile, "error", err)
+		} else {
+			log.Info("saved sessions for resume", "file", cfg.StateFile, "sessions", n)
+		}
+	}
 	sessions.Shutdown()
 	return httpServer.Shutdown(ctx)
 }

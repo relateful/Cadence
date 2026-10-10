@@ -27,6 +27,7 @@ type Config struct {
 	AudioCacheGB      int
 	Normalize         bool
 	NormalizeLufs     int
+	StateFile         string
 	DeezerARL         string
 	DeezerHighQuality bool
 	DeezerMasterKey   string
@@ -80,6 +81,7 @@ func Load(get Lookup) (Config, error) {
 		LogLevel:          str(get, "CADENCE_LOG_LEVEL", "info"),
 		AudioCacheDir:     str(get, "CADENCE_AUDIO_CACHE_DIR", ""),
 		Normalize:         flag(get, "CADENCE_NORMALIZE", true),
+		StateFile:         str(get, "CADENCE_STATE_FILE", ""),
 		DeezerARL:         str(get, "DEEZER_ARL", ""),
 		DeezerHighQuality: flag(get, "DEEZER_HIGH_QUALITY", true),
 		DeezerMasterKey:   str(get, "DEEZER_MASTER_KEY", ""),

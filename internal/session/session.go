@@ -65,6 +65,9 @@ func newID() string {
 }
 
 func (s *Session) send(v any) {
+	if s.manager.quiet.Load() {
+		return
+	}
 	raw, err := json.Marshal(v)
 	if err != nil {
 		s.log.Error("unencodable message", "error", err)
@@ -324,6 +327,7 @@ type Manager struct {
 	sessions map[string]*Session
 	deps     Deps
 	stats    func() lavalink.Stats
+	quiet    atomic.Bool
 }
 
 func (m *Manager) SetStats(fn func() lavalink.Stats) {
@@ -335,8 +339,12 @@ func NewManager(deps Deps) *Manager {
 }
 
 func (m *Manager) Create(userID, clientName string, resumeTimeout time.Duration, protocol Protocol) *Session {
+	return m.newSession(newID(), userID, clientName, resumeTimeout, protocol)
+}
+
+func (m *Manager) newSession(id, userID, clientName string, resumeTimeout time.Duration, protocol Protocol) *Session {
 	s := &Session{
-		ID:         newID(),
+		ID:         id,
 		UserID:     userID,
 		ClientName: clientName,
 		Protocol:   protocol,

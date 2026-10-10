@@ -98,6 +98,7 @@ Everything is set through environment variables. See [`.env.example`](.env.examp
 | `CADENCE_AUDIO_CACHE_GB` | `20` | Disk cache size cap (1–1000). Least recently played tracks are removed first |
 | `CADENCE_NORMALIZE` | `true` | Level every track to the same loudness, from its analysis |
 | `CADENCE_NORMALIZE_LUFS` | `-14` | Loudness target for levelling (−30 to −5) |
+| `CADENCE_STATE_FILE` | off | Where to save sessions on shutdown so a restart resumes playback where it stopped |
 | `DEEZER_ARL` | | Deezer account session for full-length streams |
 | `DEEZER_MASTER_KEY` | | 16-byte key for Deezer's `BF_CBC_STRIPE` stream cipher. Without it nothing plays |
 | `DEEZER_HIGH_QUALITY` | `true` | Prefer 128 kbps MP3 over 64 kbps |
