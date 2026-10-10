@@ -103,20 +103,31 @@ func BestMatch(target Track, candidates []Track) (Track, bool) {
 	return best, found
 }
 
-func unwantedMarkers(query string, t Track) int {
-	want, n := markers(query), 0
-	for m := range markers(t.Title) {
-		if !want[m] {
-			n++
+func markerMismatch(want map[string]bool, t Track) (missing, unwanted int) {
+	got := markers(t.Title)
+	for m := range want {
+		if !got[m] {
+			missing++
 		}
 	}
-	return n
+	for m := range got {
+		if !want[m] {
+			unwanted++
+		}
+	}
+	return missing, unwanted
 }
 
 func RankForQuery(query string, tracks []Track) []Track {
+	want := markers(query)
 	out := append([]Track(nil), tracks...)
 	sort.SliceStable(out, func(i, j int) bool {
-		return unwantedMarkers(query, out[i]) < unwantedMarkers(query, out[j])
+		mi, ui := markerMismatch(want, out[i])
+		mj, uj := markerMismatch(want, out[j])
+		if mi != mj {
+			return mi < mj
+		}
+		return ui < uj
 	})
 	return out
 }
