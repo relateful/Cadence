@@ -60,6 +60,8 @@ type Deck struct {
 	starvedAt  time.Time
 	stuckSent  bool
 	tap        Tap
+	norm       float64
+	measured   bool
 	mu         sync.Mutex
 	log        *slog.Logger
 }
@@ -74,6 +76,7 @@ func newDeck(t, playable source.Track, bufferFrames int, log *slog.Logger) *Deck
 		stretch:    audio.NewStretcher(),
 		hop:        make([]float64, audio.FrameSamples),
 		tempoRatio: 1,
+		norm:       1,
 		filters:    DefaultFilters(),
 		log:        log,
 	}

@@ -30,6 +30,9 @@ type Deps struct {
 	PlayoutDelay   time.Duration
 	UpdateInterval time.Duration
 	Log            *slog.Logger
+	Loudness       player.LoudnessLookup
+	OnUnmeasured   func(source.Track)
+	TargetLufs     float64
 }
 
 type Session struct {
@@ -189,6 +192,9 @@ func (s *Session) Guild(id string, create bool) *Guild {
 		Resolve:      s.deps.Resolver,
 		OnEvent:      func(e player.Event) { s.onEvent(g, e) },
 		Log:          g.log,
+		Loudness:     s.deps.Loudness,
+		OnUnmeasured: s.deps.OnUnmeasured,
+		TargetLufs:   s.deps.TargetLufs,
 	})
 	s.guilds[id] = g
 	return g

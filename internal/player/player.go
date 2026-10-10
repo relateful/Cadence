@@ -31,6 +31,9 @@ type Config struct {
 	Resolve      Resolver
 	OnEvent      func(Event)
 	Log          *slog.Logger
+	Loudness     LoudnessLookup
+	OnUnmeasured func(source.Track)
+	TargetLufs   float64
 }
 
 type sent struct {
@@ -139,6 +142,7 @@ func (p *Player) SetAnalysis(f TapFactory) {
 
 func (p *Player) newDeck(t, playable source.Track, startMs int64) *Deck {
 	d := newDeck(t, playable, p.cfg.BufferFrames, p.cfg.Log)
+	p.levelDeck(d)
 	d.SetFilters(p.filters)
 	if p.analysis != nil && startMs == 0 {
 		if tap := p.analysis(playable); tap != nil {
@@ -364,6 +368,9 @@ func (p *Player) StartCrossfade(req CrossfadeRequest) error {
 func (p *Player) beginFadeLocked(deck *Deck, inst uint64, durationMs int, curve audio.FadeCurve, profile audio.TransitionProfile, gain float64) {
 	p.pending = nil
 	p.profile = profile
+	if deck.measured && p.active != nil && p.active.measured {
+		gain = 1
+	}
 	p.incGain = gain
 	p.outDsp.Reset()
 	p.inDsp.Reset()
@@ -454,7 +461,7 @@ func (p *Player) NextFrame(out *audio.Frame) (FrameInfo, bool) {
 		if !bOK {
 			b = &audio.Silence
 		}
-		audio.Mix(a, p.fade.OutGain*p.activeGain*vol, b, p.fade.InGain*p.incGain*vol, out)
+		audio.Mix(a, p.fade.OutGain*p.activeGain*p.active.norm*vol, b, p.fade.InGain*p.incGain*p.incoming.norm*vol, out)
 		info := FrameInfo{Instance: p.activeInst, PositionMs: posA, Mixing: true}
 		if p.fade.Finished() {
 			p.promoteLocked()
@@ -469,7 +476,7 @@ func (p *Player) NextFrame(out *audio.Frame) (FrameInfo, bool) {
 		p.checkEndLocked()
 		return FrameInfo{}, false
 	}
-	audio.Scale(&p.bufA, p.activeGain*vol, out)
+	audio.Scale(&p.bufA, p.activeGain*p.active.norm*vol, out)
 	return FrameInfo{Instance: p.activeInst, PositionMs: pos}, true
 }
 

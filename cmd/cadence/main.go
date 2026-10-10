@@ -18,6 +18,7 @@ import (
 	"github.com/greed/cadence/internal/codec"
 	"github.com/greed/cadence/internal/config"
 	"github.com/greed/cadence/internal/httpx"
+	"github.com/greed/cadence/internal/player"
 	"github.com/greed/cadence/internal/session"
 	"github.com/greed/cadence/internal/source"
 	"github.com/greed/cadence/internal/source/applemusic"
@@ -113,14 +114,27 @@ func run() error {
 		return dz.Open(ctx, playable)
 	}, cfg.AnalysisWorkers, cfg.AnalysisQueue, log)
 
-	sessions := session.NewManager(session.Deps{
+	deps := session.Deps{
 		Resolver:       resolver,
 		Registry:       registry,
 		BufferFrames:   cfg.BufferMs / audio.FrameMs,
 		PlayoutDelay:   cfg.PlayoutDelay,
 		UpdateInterval: cfg.UpdateInterval,
 		Log:            log,
-	})
+	}
+	if cfg.Normalize {
+		deps.TargetLufs = float64(cfg.NormalizeLufs)
+		deps.Loudness = func(t, playable source.Track) (player.Loudness, bool) {
+			for _, k := range []source.Track{playable, t} {
+				if fp, ok := registry.Get(k.Source, k.Identifier); ok {
+					return player.Loudness{IntegratedLufs: fp.Loudness.IntegratedLufs, PeakAmplitude: fp.Loudness.PeakAmplitude}, true
+				}
+			}
+			return player.Loudness{}, false
+		}
+		deps.OnUnmeasured = func(t source.Track) { offline.Enqueue(t, false) }
+	}
+	sessions := session.NewManager(deps)
 	server := api.New(api.Deps{Password: cfg.Password, Sessions: sessions, Resolver: resolver, Registry: registry, Offline: offline, ResumeTimeout: cfg.ResumeTimeout, Bitrate: cfg.Bitrate, Log: log})
 
 	httpServer := &http.Server{Addr: cfg.Address, Handler: server.Handler(), ReadHeaderTimeout: 10 * time.Second}

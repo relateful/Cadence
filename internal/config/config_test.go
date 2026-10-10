@@ -79,3 +79,14 @@ func TestAudioCacheIsOffByDefaultAndClamped(t *testing.T) {
 		t.Fatalf("set %q %d", c.AudioCacheDir, c.AudioCacheGB)
 	}
 }
+
+func TestNormalizeDefaultsAndClamp(t *testing.T) {
+	c, _ := Load(env(map[string]string{"CADENCE_PASSWORD": "s3cret"}))
+	if !c.Normalize || c.NormalizeLufs != -14 {
+		t.Fatalf("defaults %v %d", c.Normalize, c.NormalizeLufs)
+	}
+	c, _ = Load(env(map[string]string{"CADENCE_PASSWORD": "s3cret", "CADENCE_NORMALIZE": "false", "CADENCE_NORMALIZE_LUFS": "0"}))
+	if c.Normalize || c.NormalizeLufs != -5 {
+		t.Fatalf("set %v %d", c.Normalize, c.NormalizeLufs)
+	}
+}
