@@ -1,6 +1,6 @@
 <div align="center">
 
-# Cadence
+<img src="assets/banner.svg" alt="cadence" width="100%">
 
 **A standalone audio node for Discord bots, built in Go, with frame-accurate timing and two-deck mixing.**
 
