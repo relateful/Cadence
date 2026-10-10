@@ -1,0 +1,7 @@
+.env
+/cadence
+/cadence.exe
+*.test
+*.out
+CLAUDE.md
+.claude/
