@@ -19,6 +19,8 @@ import (
 const (
 	offlineTimeout = 3 * time.Minute
 	maxTrackLength = 20 * time.Minute
+	failRetry      = 30 * time.Minute
+	maxFailures    = 4096
 )
 
 type Opener func(ctx context.Context, t source.Track) (source.Stream, error)
@@ -34,6 +36,7 @@ type Offline struct {
 	queue    chan job
 	mu       sync.Mutex
 	inFlight map[string]bool
+	failures map[string]time.Time
 	dropped  atomic.Int64
 	done     atomic.Int64
 	failed   atomic.Int64
@@ -41,7 +44,7 @@ type Offline struct {
 }
 
 func NewOffline(registry *Registry, open Opener, workers, queueSize int, log *slog.Logger) *Offline {
-	o := &Offline{registry: registry, open: open, queue: make(chan job, max(1, queueSize)), inFlight: map[string]bool{}, log: log.With("component", "analysis")}
+	o := &Offline{registry: registry, open: open, queue: make(chan job, max(1, queueSize)), inFlight: map[string]bool{}, failures: map[string]time.Time{}, log: log.With("component", "analysis")}
 	for i := 0; i < max(1, workers); i++ {
 		go o.worker()
 	}
@@ -65,6 +68,10 @@ func (o *Offline) Enqueue(t source.Track, force bool) bool {
 		return false
 	}
 	o.mu.Lock()
+	if at, ok := o.failures[k]; ok && !force && time.Since(at) < failRetry {
+		o.mu.Unlock()
+		return false
+	}
 	if o.inFlight[k] {
 		o.mu.Unlock()
 		return false
@@ -87,6 +94,23 @@ func (o *Offline) release(k string) {
 	o.mu.Unlock()
 }
 
+func (o *Offline) remember(k string) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if len(o.failures) >= maxFailures {
+		for f, at := range o.failures {
+			if time.Since(at) >= failRetry {
+				delete(o.failures, f)
+			}
+		}
+	}
+	if len(o.failures) >= maxFailures {
+		o.log.Warn("analysis failure memory full, forgetting it", "entries", len(o.failures))
+		clear(o.failures)
+	}
+	o.failures[k] = time.Now()
+}
+
 func (o *Offline) worker() {
 	for j := range o.queue {
 		o.run(j)
@@ -106,7 +130,8 @@ func (o *Offline) run(j job) {
 	fp, err := o.analyze(ctx, j.track)
 	if err != nil {
 		o.failed.Add(1)
-		o.log.Warn("analysis failed", "track", j.key, "error", err)
+		o.log.Warn("analysis failed", "track", j.key, "error", err, "retryAfter", failRetry)
+		o.remember(j.key)
 		return
 	}
 	o.registry.Store(fp)

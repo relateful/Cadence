@@ -179,7 +179,10 @@ func TestOfflineQueueDropsWhenFull(t *testing.T) {
 	for o.Stats().Failed < int64(accepted) && time.Now().Before(deadline) {
 		time.Sleep(5 * time.Millisecond)
 	}
-	if !o.Enqueue(source.Track{Source: "s", Identifier: "a"}, false) {
+	if o.Enqueue(source.Track{Source: "s", Identifier: "a"}, false) {
+		t.Fatal("a track that just failed was queued again before failRetry")
+	}
+	if !o.Enqueue(source.Track{Source: "s", Identifier: "a"}, true) {
 		t.Fatal("finished track was not released")
 	}
 }

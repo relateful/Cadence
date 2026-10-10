@@ -109,7 +109,7 @@ func Dial(server Server, src FrameSource, onClose func(*Conn, CloseEvent), log *
 		return nil, errors.New("incomplete voice server state")
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	c := &Conn{server: server, source: src, onClose: onClose, log: log.With("guild", server.GuildID, "region", server.Region()), ctx: ctx, cancel: cancel}
+	c := &Conn{server: server, source: src, onClose: onClose, log: log.With("region", server.Region()), ctx: ctx, cancel: cancel}
 	c.bitrate.Store(int64(codec.ClampBitrate(server.Bitrate)))
 	c.seq.Store(-1)
 	c.wg.Add(1)
