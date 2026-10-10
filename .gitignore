@@ -5,3 +5,4 @@
 *.out
 CLAUDE.md
 .claude/
+.playwright-mcp/

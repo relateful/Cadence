@@ -8,7 +8,7 @@
 [![Discord Voice](https://img.shields.io/badge/voice%20gateway-v8-5865F2?logo=discord&logoColor=white)](https://docs.discord.com/developers/topics/voice-connections)
 [![DAVE](https://img.shields.io/badge/E2EE-DAVE-2ea44f)](https://daveprotocol.com)
 [![Encryption](https://img.shields.io/badge/transport-AES--256--GCM%20%7C%20XChaCha20-informational)](#discord-voice)
-[![Sources](https://img.shields.io/badge/sources-Deezer%20%C2%B7%20Spotify%20%C2%B7%20Apple%20Music-ff69b4)](#sources)
+[![Sources](https://img.shields.io/badge/sources-Deezer%20%C2%B7%20SoundCloud%20%C2%B7%20Spotify%20%C2%B7%20Apple%20Music-ff69b4)](#sources)
 [![Status](https://img.shields.io/badge/status-pre--release-orange)](#status)
 [![License](https://img.shields.io/badge/license-proprietary-lightgrey)](#license)
 
@@ -42,7 +42,7 @@ We ran Lavalink, and then our own fork of it, in production for a long time. Cad
 - 🎚️ **Two-deck mixer**: pre-buffered deck B, beat-aligned armed crossfades, equal-power or linear curves, bass swap, high-pass sweeps, loudness matching, tempo ramps
 - 🔍 **Smart sources**: Deezer playback, with Spotify and Apple Music links and search mirrored to the **exact recording** by ISRC
 - 🧠 **Track analysis**: BPM, meter, downbeats, phrase grid, Camelot key, sections, vocals, intro and outro regions, and EBU R128 loudness, compatible with greed's automix fingerprints
-- 🎛️ **Filters**: 15-band equalizer, timescale (speed, pitch, rate), karaoke, low-pass, tremolo, vibrato, rotation
+- 🎛️ **Filters**: 15-band equalizer, timescale (speed, pitch, rate), karaoke, low-pass, tremolo, vibrato, rotation and **reverb**, all of which **glide** into a new setting instead of jumping
 - 🔁 **Session resume**: players keep running while your bot reconnects, and missed events are replayed
 - 📈 **Observability**: Prometheus `/metrics`, structured JSON logs, typed failures with severities
 - 🛡️ **Safe defaults**: no default password, constant-time auth, per-source proxies with automatic direct fallback
@@ -180,6 +180,18 @@ PATCH /v1/sessions/{session}/players/{guild}?noReplace=false
 
 Send `"track": { "encoded": null }` to stop. Two more fields work on both `/v1` and `/v4`: `"bitrate": 128000` sets the Opus bitrate (16–384 kbps) and is remembered across voice updates, and `"nextTrack": { "encoded": "…" }` preloads the next track so it starts on the exact frame the current one ends (`{ "encoded": null }` clears it). The voice and track updates can arrive in **any order**. A track sent before voice simply waits, without its clock moving.
 
+#### Filters
+
+`filters` takes Lavalink's shapes (`equalizer`, `timescale`, `karaoke`, `lowPass`, `tremolo`, `vibrato`, `rotation`) plus one of Cadence's own:
+
+```json
+"filters": { "reverb": { "mix": 0.3, "room": 0.85, "damping": 0.4 } }
+```
+
+`reverb` is a Freeverb (8 combs and 4 all-passes per channel, tuned for 48 kHz); every value is 0–1. It is listed in `/v4/info` `filters`, so `lavalink-client` passes it through unchanged.
+
+**Changes are smooth.** A new `filters` value never switches on the next frame. Equalizer gains, pitch and speed glide to their targets (about 0.5 s), and effects that turn on or off crossfade in and out, keeping their last settings while they fade. Nightcore sweeps up instead of snapping, and toggling reverb never clicks.
+
 ### Events
 
 Every event carries `guildId`, the `track`, and an `instance` counter, so your bot can ignore events from a track it has already replaced.
@@ -272,13 +284,10 @@ internal/metrics       Prometheus exposition
 
 ## Status
 
-Cadence is **pre-release**. Everything above is implemented and covered by unit tests: the audio maths, analysis, voice protocol framing, player lifecycle, resolver and API. What has **not** happened yet:
+Cadence is **pre-release**, and **running live**: the native (`libopus` + `libdave`) build plays to Discord voice with DAVE end-to-end encryption, driven by greed over the Lavalink v4 protocol. Everything above is covered by unit tests: the audio maths, filters and their ramps, reverb, analysis, voice protocol framing, player lifecycle, resolver and API. Still to do:
 
-- A native (`libopus` + `libdave`) build and a live voice session on Linux.
-- A measured `CADENCE_PLAYOUT_DELAY_MS`.
-- Moving greed's client from Lavalink v4 to the `/v1` protocol.
-
-Treat Cadence as untested in production until those are done.
+- Measure `CADENCE_PLAYOUT_DELAY_MS` against a recorded client.
+- Move greed's client from Lavalink v4 to the `/v1` protocol.
 
 ## License
 
