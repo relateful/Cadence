@@ -204,9 +204,11 @@ func (f *fakeFallback) Name() string                                        { re
 func (f *fakeFallback) SearchPrefix() string                                { return "fbsearch:" }
 func (f *fakeFallback) MatchesURL(string) bool                              { return false }
 func (f *fakeFallback) LoadURL(context.Context, string) (LoadResult, error) { return Empty(), nil }
-func (f *fakeFallback) Track(context.Context, string) (Track, error)        { return Track{}, errors.New("no") }
-func (f *fakeFallback) Search(context.Context, string) ([]Track, error)     { return f.results, nil }
-func (f *fakeFallback) Warm(context.Context, Track)                         {}
+func (f *fakeFallback) Track(context.Context, string) (Track, error) {
+	return Track{}, errors.New("no")
+}
+func (f *fakeFallback) Search(context.Context, string) ([]Track, error) { return f.results, nil }
+func (f *fakeFallback) Warm(context.Context, Track)                     {}
 func (f *fakeFallback) Open(context.Context, Track) (Stream, error) {
 	f.opened.Add(1)
 	return Stream{}, nil
