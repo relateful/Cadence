@@ -233,6 +233,27 @@ func (s *Server) crossfade(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (s *Server) hostMix(w http.ResponseWriter, r *http.Request) {
+	_, g, ok := s.guild(w, r, false)
+	if !ok {
+		return
+	}
+	var req player.HostRequest
+	if err := decode(r, &req); err != nil {
+		fail(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
+	switch err := g.Player.StartHost(req); {
+	case errors.Is(err, player.ErrNoDeckB), errors.Is(err, player.ErrNothingToMix), errors.Is(err, player.ErrTrackLoading):
+		fail(w, r, http.StatusConflict, err.Error())
+	case err != nil:
+		s.log.Warn("dj voice refused", "guild", g.ID, "error", err)
+		fail(w, r, http.StatusBadRequest, err.Error())
+	default:
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
 func (s *Server) cancelMix(w http.ResponseWriter, r *http.Request) {
 	_, g, ok := s.guild(w, r, false)
 	if !ok {

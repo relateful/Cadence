@@ -19,6 +19,8 @@ const (
 	EventMixStarted     EventType = "MixStartedEvent"
 	EventMixPromoted    EventType = "MixPromotedEvent"
 	EventMixDropped     EventType = "MixDroppedEvent"
+	EventHostStarted    EventType = "HostStartedEvent"
+	EventHostEnded      EventType = "HostEndedEvent"
 	EventSendStall      EventType = "SendStallEvent"
 	EventPositionJump   EventType = "PositionEvent"
 )

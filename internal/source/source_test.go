@@ -242,3 +242,66 @@ func TestFallbackAnswersOnlyWhenThePrimaryHasNothing(t *testing.T) {
 		t.Fatalf("primary should win the mirror: %+v %v", mirrored, err)
 	}
 }
+
+type fakeRecommender struct {
+	fakeAudio
+	seeds []string
+	out   []Track
+	err   error
+}
+
+func (f *fakeRecommender) Recommend(_ context.Context, seed string, limit int) ([]Track, error) {
+	f.seeds = append(f.seeds, seed)
+	if limit != recommendLimit {
+		return nil, errors.New("unexpected limit")
+	}
+	return f.out, f.err
+}
+
+func TestRecommendPrefixAsksTheAudioSource(t *testing.T) {
+	audio := &fakeRecommender{out: []Track{{Source: "fake", Identifier: "2", Title: "Next"}}}
+	r := NewResolver(audio, nil, logger())
+	res := r.Load(context.Background(), RecommendPrefix+" 110956532 ")
+	if res.Type != LoadSearch || len(res.Tracks) != 1 || res.Tracks[0].Identifier != "2" {
+		t.Fatalf("got %+v, want the recommended track as search results", res)
+	}
+	if len(audio.seeds) != 1 || audio.seeds[0] != "110956532" {
+		t.Fatalf("seeds = %q, want the trimmed seed", audio.seeds)
+	}
+}
+
+func TestRecommendPrefixWithoutARecommenderOrResultsIsEmpty(t *testing.T) {
+	if res := NewResolver(&fakeAudio{}, nil, logger()).Load(context.Background(), RecommendPrefix+"1"); res.Type != LoadEmpty {
+		t.Fatalf("a source that cannot recommend must give an empty result, got %v", res.Type)
+	}
+	if res := NewResolver(&fakeRecommender{}, nil, logger()).Load(context.Background(), RecommendPrefix+"1"); res.Type != LoadEmpty {
+		t.Fatalf("no recommendations must give an empty result, got %v", res.Type)
+	}
+	failing := &fakeRecommender{err: errors.New("boom")}
+	if res := NewResolver(failing, nil, logger()).Load(context.Background(), RecommendPrefix+"1"); res.Type != LoadError {
+		t.Fatalf("a failure must surface as a load error, got %v", res.Type)
+	}
+}
+
+func TestFanEditsAreRecognised(t *testing.T) {
+	edits := []string{"Gilded Lily (Sped Up)", "This Side of Paradise (slowed)", "i met sarah in the bathroom {slow//reverb}", "Swing Lynn (Slowed Version)", "Song - Nightcore", "Track (8D Audio)", "Hit (Karaoke Version)"}
+	for _, title := range edits {
+		if !FanEdit(Track{Title: title}) {
+			t.Fatalf("%q should be a fan edit", title)
+		}
+	}
+	real := []string{"Sweater Weather", "Song (Live)", "Song (Remix)", "Song - Acoustic", "Speedway", "Slowdive"}
+	for _, title := range real {
+		if FanEdit(Track{Title: title}) {
+			t.Fatalf("%q is not a fan edit", title)
+		}
+	}
+}
+
+func TestRecommendationsDropFanEdits(t *testing.T) {
+	audio := &fakeRecommender{out: []Track{{Identifier: "1", Title: "Gilded Lily"}, {Identifier: "2", Title: "Gilded Lily (Sped Up)"}}}
+	res := NewResolver(audio, nil, logger()).Load(context.Background(), RecommendPrefix+"9")
+	if len(res.Tracks) != 1 || res.Tracks[0].Identifier != "1" {
+		t.Fatalf("got %+v, want only the original", res.Tracks)
+	}
+}

@@ -48,6 +48,9 @@ func run() error {
 	if len(os.Args) > 1 && os.Args[1] == "-seek" {
 		return seekCheck(ctx, dz)
 	}
+	if len(os.Args) > 2 && os.Args[1] == "-rec" {
+		return recommendCheck(ctx, dz, os.Args[2])
+	}
 	if len(os.Args) > 1 {
 		return bench(ctx, dz, os.Args[1:])
 	}
@@ -214,5 +217,18 @@ func seekCheck(ctx context.Context, dz *deezer.Deezer) error {
 		fmt.Printf("seek %6dms: start sample %d, %d samples bit-exact after the warm-up frames, opened in %s\n", ms, s.StartSample, (len(got)-skip)/2, took.Round(time.Millisecond))
 	}
 	fmt.Println("result:   range seeks match the full decode")
+	return nil
+}
+
+func recommendCheck(ctx context.Context, dz *deezer.Deezer, seed string) error {
+	start := time.Now()
+	tracks, err := dz.Recommend(ctx, seed, 50)
+	if err != nil {
+		return fmt.Errorf("recommend: %w", err)
+	}
+	fmt.Printf("%d recommendations for %s in %s\n", len(tracks), seed, time.Since(start).Round(time.Millisecond))
+	for i, t := range tracks {
+		fmt.Printf("%2d. %s - %s (deezer %s)\n", i+1, t.Author, t.Title, t.Identifier)
+	}
 	return nil
 }

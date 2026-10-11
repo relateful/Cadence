@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/greed/cadence/internal/audio"
+	"github.com/greed/cadence/internal/metrics"
 	"github.com/greed/cadence/internal/source"
 )
 
@@ -51,6 +52,7 @@ type pendingMix struct {
 	atMs       int64
 	profile    audio.TransitionProfile
 	gain       float64
+	host       *hostRun
 }
 
 type CrossfadeRequest struct {
@@ -82,6 +84,9 @@ type Player struct {
 	cuedInst   uint64
 	pending    *pendingMix
 	fade       *audio.Crossfade
+	host       *hostRun
+	hostPosA   float64
+	bus        audio.Bus
 	profile    audio.TransitionProfile
 	activeGain float64
 	incGain    float64
@@ -247,7 +252,13 @@ func (p *Player) dropMixLocked() {
 	if p.cued != nil {
 		p.dropDeckLocked(p.cued, p.cuedInst)
 	}
-	p.incoming, p.cued, p.pending, p.fade = nil, nil, nil, nil
+	if p.host != nil || (p.pending != nil && p.pending.host != nil) {
+		metrics.Host.Inc("dropped")
+	}
+	if h := p.host; h != nil && !h.voiceEnded {
+		p.emit(Event{Type: EventHostEnded, Track: p.activeTrackLocked(), Instance: p.activeInst, DurationMs: h.elapsed})
+	}
+	p.incoming, p.cued, p.pending, p.fade, p.host = nil, nil, nil, nil, nil
 }
 
 func (p *Player) clearMixLocked() {
@@ -402,15 +413,19 @@ func (p *Player) StartCrossfade(req CrossfadeRequest) error {
 		p.emit(Event{Type: EventMixArmed, Track: &deck.Track, Instance: inst, PositionMs: *req.AtPositionMs, DurationMs: int64(req.DurationMs)})
 		return nil
 	}
-	p.beginFadeLocked(deck, inst, req.DurationMs, curve, req.Profile, gain)
+	p.beginFadeLocked(deck, inst, req.DurationMs, curve, req.Profile, gain, nil)
 	p.mu.Unlock()
 	return nil
 }
 
-func (p *Player) beginFadeLocked(deck *Deck, inst uint64, durationMs int, curve audio.FadeCurve, profile audio.TransitionProfile, gain float64) {
+func (p *Player) beginFadeLocked(deck *Deck, inst uint64, durationMs int, curve audio.FadeCurve, profile audio.TransitionProfile, gain float64, host *hostRun) {
 	p.pending = nil
 	if p.fade != nil && p.incoming != nil {
 		p.promoteLocked()
+	}
+	p.host = host
+	if host != nil && p.active != nil {
+		p.hostPosA = float64(p.active.PositionMs())
 	}
 	p.profile = profile
 	if deck.measured {
@@ -423,6 +438,9 @@ func (p *Player) beginFadeLocked(deck *Deck, inst uint64, durationMs int, curve 
 	p.fade = audio.NewCrossfade(durationMs, curve)
 	into := deck.Track
 	p.emit(Event{Type: EventMixStarted, Track: p.activeTrackLocked(), Instance: p.activeInst, Into: &into, IntoMs: deck.PositionMs(), DurationMs: int64(p.fade.DurationMs())})
+	if host != nil {
+		p.emit(Event{Type: EventHostStarted, Track: p.activeTrackLocked(), Instance: p.activeInst, Into: &into, IntoMs: deck.PositionMs(), DurationMs: host.shape.VoiceMs})
+	}
 }
 
 func (p *Player) activeTrackLocked() *source.Track {
@@ -437,6 +455,9 @@ func (p *Player) CancelPending() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.pending != nil {
+		if p.pending.host != nil {
+			metrics.Host.Inc("dropped")
+		}
 		p.dropDeckLocked(p.pending.deck, p.pending.instance)
 		p.pending = nil
 	}
@@ -464,7 +485,7 @@ func (p *Player) releasePendingLocked() {
 		return
 	}
 	if p.active.PositionMs() >= w.atMs {
-		p.beginFadeLocked(w.deck, w.instance, w.durationMs, w.curve, w.profile, w.gain)
+		p.beginFadeLocked(w.deck, w.instance, w.durationMs, w.curve, w.profile, w.gain, w.host)
 	}
 }
 
@@ -475,7 +496,7 @@ func (p *Player) gainLocked() float64 {
 func (p *Player) NextFrame(out *audio.Frame) (FrameInfo, bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.active == nil || (p.paused && !p.fadingOut) {
+	if (p.active == nil && p.host == nil) || (p.paused && !p.fadingOut) {
 		return FrameInfo{}, false
 	}
 	from := p.env
@@ -513,6 +534,9 @@ func (p *Player) frameLocked(out *audio.Frame) (FrameInfo, bool) {
 	p.expireAdoptionLocked()
 	p.releasePendingLocked()
 	vol := p.gainLocked()
+	if p.host != nil && p.fade != nil && p.incoming != nil {
+		return p.hostFrameLocked(out, vol)
+	}
 	if p.fade != nil && p.incoming != nil {
 		posA, aOK := p.active.Read(&p.bufA)
 		_, bOK := p.incoming.Read(&p.bufB)
@@ -560,7 +584,9 @@ func (p *Player) checkEndLocked() {
 	d, inst := p.active, p.activeInst
 	if f := d.Failure(); f != nil && p.fade != nil && p.incoming != nil {
 		p.emit(Event{Type: EventTrackException, Track: &d.Track, Encoded: d.Track.Encode(), Instance: inst, Exception: f})
-		p.promoteLocked()
+		if p.host == nil {
+			p.promoteLocked()
+		}
 		return
 	}
 	if f := d.Failure(); f != nil {
@@ -587,6 +613,10 @@ const tempoRampDuration = 11 * time.Second
 
 func (p *Player) promoteLocked() {
 	old, oldInst := p.active, p.activeInst
+	if h := p.host; h != nil && !h.voiceEnded {
+		p.emit(Event{Type: EventHostEnded, Track: p.activeTrackLocked(), Instance: oldInst, DurationMs: h.elapsed})
+	}
+	p.host = nil
 	p.active, p.activeInst = p.incoming, p.incInst
 	p.incoming, p.fade = nil, nil
 	p.activeGain, p.incGain = p.incGain, 1
@@ -594,10 +624,12 @@ func (p *Player) promoteLocked() {
 	if r := p.active.TempoRatio(); r != 1 {
 		p.rampFrom, p.rampStart, p.rampUntil = r, time.Now(), time.Now().Add(tempoRampDuration)
 	}
-	old.Close()
-	into := p.active.Track
-	p.emit(Event{Type: EventMixPromoted, Track: &old.Track, Instance: oldInst, Into: &into, IntoMs: p.active.PositionMs()})
-	p.emit(Event{Type: EventTrackEnd, Track: &old.Track, Encoded: old.Track.Encode(), Instance: oldInst, Reason: EndReplaced})
+	if old != nil {
+		old.Close()
+		into := p.active.Track
+		p.emit(Event{Type: EventMixPromoted, Track: &old.Track, Instance: oldInst, Into: &into, IntoMs: p.active.PositionMs()})
+		p.emit(Event{Type: EventTrackEnd, Track: &old.Track, Encoded: old.Track.Encode(), Instance: oldInst, Reason: EndReplaced})
+	}
 	p.emit(trackEvent(EventTrackStart, p.active, p.activeInst))
 }
 
@@ -665,6 +697,7 @@ type State struct {
 	MixProgress     float64       `json:"mixProgress,omitempty"`
 	DeckBLoaded     bool          `json:"deckBLoaded"`
 	MixArmedAtMs    *int64        `json:"mixArmedAtMs,omitempty"`
+	Hosting         bool          `json:"hosting"`
 	NextTrack       *source.Track `json:"nextTrack,omitempty"`
 }
 
@@ -697,6 +730,7 @@ func (p *Player) State() State {
 	if p.fade != nil && p.incoming != nil {
 		into := p.incoming.Track
 		s.Mixing, s.MixInto, s.MixIntoMs, s.MixProgress = true, &into, p.incoming.PositionMs(), p.fade.Progress()
+		s.Hosting = p.host != nil && !p.host.voiceEnded
 	}
 	if p.pending != nil {
 		at := p.pending.atMs

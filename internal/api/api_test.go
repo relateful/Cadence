@@ -140,6 +140,12 @@ func TestPlayerLifecycleAndMixConflicts(t *testing.T) {
 	if res, _ := call(t, "POST", base+"/mix/crossfade", map[string]any{"durationMs": 0}); res.StatusCode != http.StatusConflict && res.StatusCode != http.StatusBadRequest {
 		t.Fatalf("zero duration: %d", res.StatusCode)
 	}
+	if res, _ := call(t, "POST", base+"/mix/host", map[string]any{"audio": "bm90IGFuIG1wMw=="}); res.StatusCode != http.StatusBadRequest {
+		t.Fatalf("dj voice with a clip that is not mp3: %d", res.StatusCode)
+	}
+	if res, _ := call(t, "POST", base+"/mix/host", map[string]any{"audio": "%%%"}); res.StatusCode != http.StatusBadRequest {
+		t.Fatalf("dj voice with a clip that is not base64: %d", res.StatusCode)
+	}
 	if res, _ := call(t, "DELETE", base, nil); res.StatusCode != http.StatusNoContent {
 		t.Fatalf("delete %d", res.StatusCode)
 	}

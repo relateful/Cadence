@@ -49,6 +49,18 @@ func overlap(a, b map[string]bool) float64 {
 	return float64(hit) / float64(len(a))
 }
 
+var fanEditMarkers = []string{"sped up", "slowed", "nightcore", "8d", "reverb", "karaoke"}
+
+func FanEdit(t Track) bool {
+	found := markers(t.Title)
+	for _, m := range fanEditMarkers {
+		if found[m] {
+			return true
+		}
+	}
+	return false
+}
+
 func markers(s string) map[string]bool {
 	n := " " + normalize(s) + " "
 	out := map[string]bool{}

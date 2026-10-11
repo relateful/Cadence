@@ -34,6 +34,7 @@ func (s *Server) routesV4(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /v4/sessions/{session}/players/{guild}", s.auth(s.deletePlayer))
 	mux.HandleFunc("POST /v4/sessions/{session}/players/{guild}/mix/deckb", s.auth(s.loadDeckB))
 	mux.HandleFunc("POST /v4/sessions/{session}/players/{guild}/mix/crossfade", s.auth(s.crossfade))
+	mux.HandleFunc("POST /v4/sessions/{session}/players/{guild}/mix/host", s.auth(s.hostMix))
 	mux.HandleFunc("POST /v4/sessions/{session}/players/{guild}/mix/analyze", s.auth(s.analyzeDeck))
 	mux.HandleFunc("DELETE /v4/sessions/{session}/players/{guild}/mix", s.auth(s.cancelMix))
 	mux.HandleFunc("POST /v4/sessions/{session}/mix/analyzetrack", s.auth(s.analyzeTrack))

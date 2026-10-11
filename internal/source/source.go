@@ -16,6 +16,10 @@ type Source interface {
 	Track(ctx context.Context, identifier string) (Track, error)
 }
 
+type Recommender interface {
+	Recommend(ctx context.Context, identifier string, limit int) ([]Track, error)
+}
+
 type ISRCLookup interface {
 	ByISRC(ctx context.Context, isrc string) (Track, error)
 }

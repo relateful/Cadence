@@ -50,14 +50,16 @@ func (l *Labeled) snapshot() map[string]int64 {
 }
 
 var (
-	Events         Labeled
-	Exceptions     Labeled
-	VoiceClose     Labeled
-	Prefetch       Labeled
-	AudioCache     Labeled
-	Seek           Labeled
-	Fallback       Labeled
-	DeezerAccounts Labeled
+	Events          Labeled
+	Exceptions      Labeled
+	VoiceClose      Labeled
+	Prefetch        Labeled
+	AudioCache      Labeled
+	Seek            Labeled
+	Fallback        Labeled
+	DeezerAccounts  Labeled
+	Recommendations Labeled
+	Host            Labeled
 
 	AudioCacheBytes Counter
 	AudioCacheFiles Counter
@@ -93,6 +95,8 @@ func Write(w io.Writer, gauges []Gauge) {
 	labeled(w, "cadence_audio_cache_total", "Disk audio cache outcomes.", "outcome", &AudioCache)
 	labeled(w, "cadence_seek_total", "How seeks were served.", "outcome", &Seek)
 	labeled(w, "cadence_fallback_total", "Requests answered by the fallback audio source.", "kind", &Fallback)
+	labeled(w, "cadence_host_total", "DJ voice transitions: played, dropped or refused.", "outcome", &Host)
+	labeled(w, "cadence_recommendations_total", "Recommendation lists by where they came from.", "source", &Recommendations)
 	labeled(w, "cadence_deezer_accounts_total", "Deezer accounts rejected, and streams served by a later account.", "outcome", &DeezerAccounts)
 }
 

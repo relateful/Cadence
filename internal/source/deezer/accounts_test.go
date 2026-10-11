@@ -120,7 +120,7 @@ func rejected() error {
 func TestFirstAccountSkipsARejectedAccountAndBenchesIt(t *testing.T) {
 	d := testDeezer([]string{"dead", "live"}, RotationFailover)
 	var tried []int
-	u, err := d.firstAccount(context.Background(), func(a *account) (mediaLink, error) {
+	u, err := firstAccount(context.Background(), d, func(a *account) (mediaLink, error) {
 		tried = append(tried, a.number)
 		if a.arl == "dead" {
 			return mediaLink{}, rejected()
@@ -140,7 +140,7 @@ func TestFirstAccountSkipsARejectedAccountAndBenchesIt(t *testing.T) {
 
 func TestFirstAccountTriesAnotherAccountWhenATrackIsRefused(t *testing.T) {
 	d := testDeezer([]string{"free", "premium"}, RotationFailover)
-	u, err := d.firstAccount(context.Background(), func(a *account) (mediaLink, error) {
+	u, err := firstAccount(context.Background(), d, func(a *account) (mediaLink, error) {
 		if a.arl == "free" {
 			return mediaLink{}, source.Fail(source.SeveritySuspicious, Name, "media refused", errors.New("2002"))
 		}
@@ -157,7 +157,7 @@ func TestFirstAccountTriesAnotherAccountWhenATrackIsRefused(t *testing.T) {
 func TestFirstAccountStopsOnAnErrorAnotherAccountCannotFix(t *testing.T) {
 	d := testDeezer([]string{"a", "b"}, RotationFailover)
 	calls := 0
-	_, err := d.firstAccount(context.Background(), func(*account) (mediaLink, error) {
+	_, err := firstAccount(context.Background(), d, func(*account) (mediaLink, error) {
 		calls++
 		return mediaLink{}, source.Fail(source.SeverityCommon, Name, "track has no stream token", nil)
 	})
@@ -168,7 +168,7 @@ func TestFirstAccountStopsOnAnErrorAnotherAccountCannotFix(t *testing.T) {
 
 func TestFirstAccountReturnsTheRejectionWhenEveryAccountFails(t *testing.T) {
 	d := testDeezer([]string{"a", "b"}, RotationFailover)
-	_, err := d.firstAccount(context.Background(), func(*account) (mediaLink, error) { return mediaLink{}, rejected() })
+	_, err := firstAccount(context.Background(), d, func(*account) (mediaLink, error) { return mediaLink{}, rejected() })
 	if !isRejected(err) {
 		t.Fatalf("err = %v, want an arl rejected failure", err)
 	}
@@ -191,7 +191,7 @@ func TestAnAccountNeverPrintsItsARL(t *testing.T) {
 
 func TestFirstAccountMovesOnWhenAnAccountIsRateLimited(t *testing.T) {
 	d := testDeezer([]string{"limited", "spare"}, RotationFailover)
-	u, err := d.firstAccount(context.Background(), func(a *account) (mediaLink, error) {
+	u, err := firstAccount(context.Background(), d, func(a *account) (mediaLink, error) {
 		if a.arl == "limited" {
 			return mediaLink{}, &httpx.StatusError{Status: 429}
 		}
@@ -205,7 +205,7 @@ func TestFirstAccountMovesOnWhenAnAccountIsRateLimited(t *testing.T) {
 func TestTheLastWorkingAccountIsNeverBenched(t *testing.T) {
 	single := testDeezer([]string{"only"}, RotationFailover)
 	for range 2 {
-		_, err := single.firstAccount(context.Background(), func(*account) (mediaLink, error) { return mediaLink{}, rejected() })
+		_, err := firstAccount(context.Background(), single, func(*account) (mediaLink, error) { return mediaLink{}, rejected() })
 		if !isRejected(err) {
 			t.Fatalf("err = %v, want the rejection itself", err)
 		}
@@ -214,7 +214,7 @@ func TestTheLastWorkingAccountIsNeverBenched(t *testing.T) {
 		t.Fatalf("order = %v, a lone account must stay in rotation so the next request asks Deezer again", got)
 	}
 	pair := testDeezer([]string{"a", "b"}, RotationFailover)
-	_, _ = pair.firstAccount(context.Background(), func(*account) (mediaLink, error) { return mediaLink{}, rejected() })
+	_, _ = firstAccount(context.Background(), pair, func(*account) (mediaLink, error) { return mediaLink{}, rejected() })
 	if got := numbers(pair.accounts.order()); !equal(got, []int{2}) {
 		t.Fatalf("order = %v, want the first benched and the last kept", got)
 	}

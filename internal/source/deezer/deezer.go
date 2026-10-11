@@ -60,6 +60,7 @@ type Deezer struct {
 	formats  []mediaFormat
 	urls     *cache.LRU[string, mediaLink]
 	isrc     *cache.LRU[string, source.Track]
+	radio    *cache.LRU[string, []source.Track]
 	heads    *cache.LRU[string, *head]
 	flights  headStore
 	disk     *diskCache
@@ -78,6 +79,7 @@ func New(client *httpx.Client, arls []string, rotation Rotation, highQuality boo
 		formats:  formats,
 		urls:     cache.New[string, mediaLink](50_000, mediaURLTTL),
 		isrc:     cache.New[string, source.Track](200_000, isrcCacheTTL),
+		radio:    cache.New[string, []source.Track](radioEntries, radioTTL),
 		heads:    cache.New[string, *head](headEntries, headTTL),
 		flights:  headStore{inflight: map[string]*headFlight{}},
 		layouts:  newLayoutCache(),

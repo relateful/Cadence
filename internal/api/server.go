@@ -117,6 +117,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /v1/sessions/{session}/players/{guild}", s.auth(s.deletePlayer))
 	mux.HandleFunc("POST /v1/sessions/{session}/players/{guild}/mix/deckb", s.auth(s.loadDeckB))
 	mux.HandleFunc("POST /v1/sessions/{session}/players/{guild}/mix/crossfade", s.auth(s.crossfade))
+	mux.HandleFunc("POST /v1/sessions/{session}/players/{guild}/mix/host", s.auth(s.hostMix))
 	mux.HandleFunc("POST /v1/sessions/{session}/players/{guild}/mix/analyze", s.auth(s.analyzeDeck))
 	mux.HandleFunc("DELETE /v1/sessions/{session}/players/{guild}/mix", s.auth(s.cancelMix))
 	return s.recoverer(mux)

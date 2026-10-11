@@ -25,6 +25,11 @@ const (
 
 var SearchAliases = []string{"ytmsearch:", "ytsearch:"}
 
+const (
+	RecommendPrefix = "dzrec:"
+	recommendLimit  = 50
+)
+
 type mirrorEntry struct {
 	track Track
 	ok    bool
@@ -146,6 +151,9 @@ func (r *Resolver) load(ctx context.Context, identifier string) LoadResult {
 		}
 		return Single(t)
 	}
+	if seed, ok := strings.CutPrefix(identifier, RecommendPrefix); ok {
+		return r.recommend(ctx, strings.TrimSpace(seed))
+	}
 	if s, query, ok := r.byPrefix(identifier); ok {
 		return r.search(ctx, s, query)
 	}
@@ -167,6 +175,27 @@ func (r *Resolver) load(ctx context.Context, identifier string) LoadResult {
 		last = res
 	}
 	return last
+}
+
+func (r *Resolver) recommend(ctx context.Context, seed string) LoadResult {
+	rec, ok := r.audio.(Recommender)
+	if !ok || seed == "" {
+		return Empty()
+	}
+	found, err := rec.Recommend(ctx, seed, recommendLimit)
+	if err != nil {
+		return LoadResult{Type: LoadError, Error: Classify(r.audio.Name(), err)}
+	}
+	tracks := make([]Track, 0, len(found))
+	for _, t := range found {
+		if !FanEdit(t) {
+			tracks = append(tracks, t)
+		}
+	}
+	if len(tracks) == 0 {
+		return Empty()
+	}
+	return Results(tracks)
 }
 
 func (r *Resolver) search(ctx context.Context, s Source, query string) LoadResult {

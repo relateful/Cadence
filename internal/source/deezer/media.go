@@ -174,7 +174,7 @@ func (d *Deezer) mediaURL(ctx context.Context, trackID string) (mediaLink, error
 	if d.accounts.empty() {
 		return mediaLink{}, source.Fail(source.SeverityFault, Name, "stream unavailable", ErrNoARL)
 	}
-	u, err := d.firstAccount(ctx, func(a *account) (mediaLink, error) { return d.mediaURLFrom(ctx, a, trackID) })
+	u, err := firstAccount(ctx, d, func(a *account) (mediaLink, error) { return d.mediaURLFrom(ctx, a, trackID) })
 	if err != nil {
 		return mediaLink{}, err
 	}
@@ -182,10 +182,13 @@ func (d *Deezer) mediaURL(ctx context.Context, trackID string) (mediaLink, error
 	return u, nil
 }
 
-func (d *Deezer) firstAccount(ctx context.Context, fetch func(*account) (mediaLink, error)) (mediaLink, error) {
-	var err error
+func firstAccount[T any](ctx context.Context, d *Deezer, fetch func(*account) (T, error)) (T, error) {
+	var (
+		zero T
+		err  error
+	)
 	for i, a := range d.accounts.order() {
-		var u mediaLink
+		var u T
 		if u, err = fetch(a); err == nil {
 			if i > 0 {
 				metrics.DeezerAccounts.Inc("switched")
@@ -206,7 +209,7 @@ func (d *Deezer) firstAccount(ctx context.Context, fetch func(*account) (mediaLi
 			break
 		}
 	}
-	return mediaLink{}, err
+	return zero, err
 }
 
 func (d *Deezer) mediaURLFrom(ctx context.Context, a *account, trackID string) (mediaLink, error) {
