@@ -100,7 +100,8 @@ Everything is set through environment variables. See [`.env.example`](.env.examp
 | `CADENCE_NORMALIZE` | `true` | Level every track to the same loudness, from its analysis |
 | `CADENCE_NORMALIZE_LUFS` | `-14` | Loudness target for levelling (−30 to −5) |
 | `CADENCE_STATE_FILE` | off | Where to save sessions on shutdown so a restart resumes playback where it stopped |
-| `DEEZER_ARL` | | Deezer account session for full-length streams |
+| `DEEZER_ARL` | | Deezer account session for full-length streams. List several, comma-separated, and a rejected or refusing account is skipped for the next |
+| `DEEZER_ARL_ROTATION` | `failover` | Which listed account each stream starts with: `failover` (first working one), `round-robin` or `random`. The others stay as fallbacks |
 | `DEEZER_MASTER_KEY` | | 16-byte key for Deezer's `BF_CBC_STRIPE` stream cipher. Without it nothing plays |
 | `DEEZER_HIGH_QUALITY` | `true` | Prefer 128 kbps MP3 over 64 kbps |
 | `SPOTIFY_CLIENT_ID` / `_SECRET` | | Spotify Web API credentials (metadata only) |

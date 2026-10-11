@@ -90,3 +90,39 @@ func TestNormalizeDefaultsAndClamp(t *testing.T) {
 		t.Fatalf("set %v %d", c.Normalize, c.NormalizeLufs)
 	}
 }
+
+func TestDeezerARLAcceptsAList(t *testing.T) {
+	c, err := Load(env(map[string]string{"CADENCE_PASSWORD": "s3cret", "DEEZER_ARL": " first , ,second", "DEEZER_ARL_ROTATION": "round-robin"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(c.DeezerARLs) != 2 || c.DeezerARLs[0] != "first" || c.DeezerARLs[1] != "second" {
+		t.Fatalf("DeezerARLs = %q, want [first second]", c.DeezerARLs)
+	}
+	if c.DeezerRotation != "round-robin" {
+		t.Fatalf("DeezerRotation = %q", c.DeezerRotation)
+	}
+	single, _ := Load(env(map[string]string{"CADENCE_PASSWORD": "s3cret", "DEEZER_ARL": "only"}))
+	if len(single.DeezerARLs) != 1 || single.DeezerARLs[0] != "only" {
+		t.Fatalf("a single ARL must still work unchanged, got %q", single.DeezerARLs)
+	}
+	for _, w := range single.Warnings() {
+		if strings.HasPrefix(w, "DEEZER_ARL") {
+			t.Fatalf("no ARL warning expected when one is set, got %q", w)
+		}
+	}
+}
+
+func TestDeezerARLOfOnlyBlanksCountsAsUnset(t *testing.T) {
+	c, _ := Load(env(map[string]string{"CADENCE_PASSWORD": "s3cret", "DEEZER_ARL": " , ,"}))
+	if len(c.DeezerARLs) != 0 {
+		t.Fatalf("DeezerARLs = %q, want none", c.DeezerARLs)
+	}
+	warned := false
+	for _, w := range c.Warnings() {
+		warned = warned || strings.HasPrefix(w, "DEEZER_ARL")
+	}
+	if !warned {
+		t.Fatal("a list of only blanks must still warn that no ARL is set")
+	}
+}

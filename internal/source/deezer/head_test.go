@@ -60,7 +60,7 @@ func newTestDeezer(t *testing.T, server *cdn, plain []byte) (*Deezer, source.Tra
 	if err != nil {
 		t.Fatal(err)
 	}
-	d := New(client, "", true, log)
+	d := New(client, nil, RotationFailover, true, log)
 	d.urls.Set(track.Identifier, mediaLink{URL: srv.URL + "/track.mp3", Format: formatMP3High})
 	return d, track
 }
@@ -87,7 +87,7 @@ func TestWarmedOpenServesHeadThenRangeTail(t *testing.T) {
 	server := &cdn{}
 	plain := pattern(headBytes*3 + 777)
 	d, track := newTestDeezer(t, server, plain)
-	d.arl = "test"
+	d.accounts = newAccountPool([]string{"test"}, RotationFailover)
 	d.Warm(context.Background(), track)
 	got, err := readAll(t, d, track)
 	if err != nil || !bytes.Equal(got, plain) {
@@ -103,7 +103,7 @@ func TestWarmedOpenSurvivesServerIgnoringRange(t *testing.T) {
 	server := &cdn{ignoreRange: true}
 	plain := pattern(headBytes*2 + 5)
 	d, track := newTestDeezer(t, server, plain)
-	d.arl = "test"
+	d.accounts = newAccountPool([]string{"test"}, RotationFailover)
 	d.Warm(context.Background(), track)
 	got, err := readAll(t, d, track)
 	if err != nil || !bytes.Equal(got, plain) {
@@ -115,7 +115,7 @@ func TestShortTrackIsServedEntirelyFromHead(t *testing.T) {
 	server := &cdn{}
 	plain := pattern(headBytes / 3)
 	d, track := newTestDeezer(t, server, plain)
-	d.arl = "test"
+	d.accounts = newAccountPool([]string{"test"}, RotationFailover)
 	d.Warm(context.Background(), track)
 	got, err := readAll(t, d, track)
 	if err != nil || !bytes.Equal(got, plain) {
@@ -143,9 +143,9 @@ func TestRefusedTailIsAnErrorNotSilence(t *testing.T) {
 	server := &cdn{denyTail: true}
 	plain := pattern(headBytes * 2)
 	d, track := newTestDeezer(t, server, plain)
-	d.arl = "test"
+	d.accounts = newAccountPool([]string{"test"}, RotationFailover)
 	d.Warm(context.Background(), track)
-	d.arl = ""
+	d.accounts = newAccountPool(nil, RotationFailover)
 	got, err := readAll(t, d, track)
 	if err == nil {
 		t.Fatal("refused tail ended the stream cleanly")
@@ -159,7 +159,7 @@ func TestOpenJoinsWarmInFlight(t *testing.T) {
 	server := &cdn{}
 	plain := pattern(headBytes * 2)
 	d, track := newTestDeezer(t, server, plain)
-	d.arl = "test"
+	d.accounts = newAccountPool([]string{"test"}, RotationFailover)
 	f := &headFlight{done: make(chan struct{})}
 	d.flights.mu.Lock()
 	d.flights.inflight[track.Identifier] = f

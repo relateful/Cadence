@@ -9,9 +9,9 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"sync"
 	"time"
 
+	"github.com/greed/cadence/internal/metrics"
 	"github.com/greed/cadence/internal/source"
 )
 
@@ -26,7 +26,12 @@ const (
 	gwInvalidToken = "VALID_TOKEN_REQUIRED"
 )
 
-var ErrNoARL = errors.New("DEEZER_ARL is not set, so full-length streams are unavailable")
+const rejectedMessage = "arl rejected"
+
+var (
+	ErrNoARL       = errors.New("DEEZER_ARL is not set, so full-length streams are unavailable")
+	errARLRejected = errors.New("the ARL is expired or the account was logged out; replace it in DEEZER_ARL")
+)
 
 type session struct {
 	apiToken     string
@@ -35,9 +40,13 @@ type session struct {
 	expires      time.Time
 }
 
-type sessionStore struct {
-	mu      sync.Mutex
-	current *session
+func isRejected(err error) bool {
+	var f *source.Failure
+	return errors.As(err, &f) && f.Message == rejectedMessage
+}
+
+func isSuspicious(err error) bool {
+	return err != nil && source.Classify(Name, err).Severity == source.SeveritySuspicious
 }
 
 type gwResponse struct {
@@ -53,7 +62,7 @@ func gwFailed(raw json.RawMessage) (string, bool) {
 	return trimmed, true
 }
 
-func (d *Deezer) gw(ctx context.Context, s *session, method string, body any, out any) error {
+func (d *Deezer) gw(ctx context.Context, a *account, s *session, method string, body any, out any) error {
 	q := url.Values{"method": {method}, "input": {"3"}, "api_version": {"1.0"}, "api_token": {""}}
 	if s != nil {
 		q.Set("api_token", s.apiToken)
@@ -68,7 +77,7 @@ func (d *Deezer) gw(ctx context.Context, s *session, method string, body any, ou
 	}
 	req.Header.Set("Content-Type", "application/json")
 	setEnglish(req)
-	cookie := "arl=" + d.arl
+	cookie := "arl=" + a.arl
 	if s != nil && s.sid != "" {
 		cookie += "; sid=" + s.sid
 	}
@@ -83,8 +92,8 @@ func (d *Deezer) gw(ctx context.Context, s *session, method string, body any, ou
 		return fmt.Errorf("%s: %w", method, err)
 	}
 	if msg, failed := gwFailed(gr.Error); failed {
-		if strings.Contains(msg, gwInvalidToken) {
-			d.sessions.invalidate()
+		if s != nil && strings.Contains(msg, gwInvalidToken) {
+			a.invalidate()
 		}
 		return source.Fail(source.SeveritySuspicious, Name, method+" refused", errors.New(msg))
 	}
@@ -109,30 +118,21 @@ type userData struct {
 	sid string
 }
 
-func (s *sessionStore) invalidate() {
-	s.mu.Lock()
-	s.current = nil
-	s.mu.Unlock()
-}
-
-func (d *Deezer) session(ctx context.Context) (*session, error) {
-	if d.arl == "" {
-		return nil, source.Fail(source.SeverityFault, Name, "stream unavailable", ErrNoARL)
-	}
-	d.sessions.mu.Lock()
-	defer d.sessions.mu.Unlock()
-	if s := d.sessions.current; s != nil && time.Now().Before(s.expires) {
+func (d *Deezer) session(ctx context.Context, a *account) (*session, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if s := a.session; s != nil && time.Now().Before(s.expires) {
 		return s, nil
 	}
 	var u userData
-	if err := d.gw(ctx, nil, "deezer.getUserData", map[string]any{}, &u); err != nil {
+	if err := d.gw(ctx, a, nil, "deezer.getUserData", map[string]any{}, &u); err != nil {
 		return nil, err
 	}
 	if u.User.ID == 0 || u.User.Options.LicenseToken == "" {
-		return nil, source.Fail(source.SeverityFault, Name, "arl rejected", errors.New("the ARL is expired or the account was logged out; replace DEEZER_ARL"))
+		return nil, source.Fail(source.SeverityFault, Name, rejectedMessage, errARLRejected)
 	}
 	s := &session{apiToken: u.CheckForm, licenseToken: u.User.Options.LicenseToken, sid: u.sid, expires: time.Now().Add(sessionTTL)}
-	d.sessions.current = s
+	a.session = s
 	return s, nil
 }
 
@@ -171,14 +171,10 @@ func (d *Deezer) mediaURL(ctx context.Context, trackID string) (mediaLink, error
 	if u, ok := d.urls.Get(trackID); ok {
 		return u, nil
 	}
-	u, err := d.fetchMediaURL(ctx, trackID)
-	if err != nil {
-		var f *source.Failure
-		if errors.As(err, &f) && f.Severity == source.SeveritySuspicious {
-			d.sessions.invalidate()
-			u, err = d.fetchMediaURL(ctx, trackID)
-		}
+	if d.accounts.empty() {
+		return mediaLink{}, source.Fail(source.SeverityFault, Name, "stream unavailable", ErrNoARL)
 	}
+	u, err := d.firstAccount(ctx, func(a *account) (mediaLink, error) { return d.mediaURLFrom(ctx, a, trackID) })
 	if err != nil {
 		return mediaLink{}, err
 	}
@@ -186,13 +182,49 @@ func (d *Deezer) mediaURL(ctx context.Context, trackID string) (mediaLink, error
 	return u, nil
 }
 
-func (d *Deezer) fetchMediaURL(ctx context.Context, trackID string) (mediaLink, error) {
-	s, err := d.session(ctx)
+func (d *Deezer) firstAccount(ctx context.Context, fetch func(*account) (mediaLink, error)) (mediaLink, error) {
+	var err error
+	for i, a := range d.accounts.order() {
+		var u mediaLink
+		if u, err = fetch(a); err == nil {
+			if i > 0 {
+				metrics.DeezerAccounts.Inc("switched")
+			}
+			return u, nil
+		}
+		if ctx.Err() != nil {
+			break
+		}
+		if isRejected(err) {
+			metrics.DeezerAccounts.Inc("rejected")
+			if d.accounts.bench(a) {
+				d.log.Error("deezer account rejected, benched", "account", a, "accounts", len(d.accounts.accounts), "for", accountBench)
+			}
+			continue
+		}
+		if !isSuspicious(err) {
+			break
+		}
+	}
+	return mediaLink{}, err
+}
+
+func (d *Deezer) mediaURLFrom(ctx context.Context, a *account, trackID string) (mediaLink, error) {
+	u, err := d.fetchMediaURL(ctx, a, trackID)
+	if err != nil && isSuspicious(err) {
+		a.invalidate()
+		u, err = d.fetchMediaURL(ctx, a, trackID)
+	}
+	return u, err
+}
+
+func (d *Deezer) fetchMediaURL(ctx context.Context, a *account, trackID string) (mediaLink, error) {
+	s, err := d.session(ctx, a)
 	if err != nil {
 		return mediaLink{}, err
 	}
 	var songs songData
-	if err := d.gw(ctx, s, "song.getListData", map[string]any{"sng_ids": []string{trackID}}, &songs); err != nil {
+	if err := d.gw(ctx, a, s, "song.getListData", map[string]any{"sng_ids": []string{trackID}}, &songs); err != nil {
 		return mediaLink{}, err
 	}
 	if len(songs.Data) == 0 || songs.Data[0].TrackToken == "" {

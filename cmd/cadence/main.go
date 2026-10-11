@@ -93,7 +93,11 @@ func run() error {
 		}
 		deezer.RegisterDecryptor(dec)
 	}
-	dz := deezer.New(clients[deezer.Name], cfg.DeezerARL, cfg.DeezerHighQuality, log)
+	rotation, err := deezer.ParseRotation(cfg.DeezerRotation)
+	if err != nil {
+		return err
+	}
+	dz := deezer.New(clients[deezer.Name], cfg.DeezerARLs, rotation, cfg.DeezerHighQuality, log)
 	if cfg.AudioCacheDir != "" {
 		store, err := audiocache.Open(cfg.AudioCacheDir, int64(cfg.AudioCacheGB)<<30, log)
 		if err != nil {

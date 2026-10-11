@@ -29,7 +29,8 @@ type Config struct {
 	Normalize         bool
 	NormalizeLufs     int
 	StateFile         string
-	DeezerARL         string
+	DeezerARLs        []string
+	DeezerRotation    string
 	DeezerHighQuality bool
 	DeezerMasterKey   string
 	DeezerProxy       string
@@ -83,7 +84,7 @@ func Load(get Lookup) (Config, error) {
 		AudioCacheDir:     str(get, "CADENCE_AUDIO_CACHE_DIR", ""),
 		Normalize:         flag(get, "CADENCE_NORMALIZE", true),
 		StateFile:         str(get, "CADENCE_STATE_FILE", ""),
-		DeezerARL:         str(get, "DEEZER_ARL", ""),
+		DeezerRotation:    str(get, "DEEZER_ARL_ROTATION", ""),
 		DeezerHighQuality: flag(get, "DEEZER_HIGH_QUALITY", true),
 		DeezerMasterKey:   str(get, "DEEZER_MASTER_KEY", ""),
 		DeezerProxy:       str(get, "DEEZER_PROXY", ""),
@@ -142,12 +143,19 @@ func Load(get Lookup) (Config, error) {
 	c.PauseFade = max(0, min(2*time.Second, c.PauseFade))
 	c.AudioCacheGB = max(1, min(1000, c.AudioCacheGB))
 	c.NormalizeLufs = max(-30, min(-5, c.NormalizeLufs))
-	for _, s := range strings.Split(str(get, "CADENCE_SEARCH_ORDER", "applemusic,spotify,deezer"), ",") {
+	c.SearchOrder = list(get, "CADENCE_SEARCH_ORDER", "applemusic,spotify,deezer")
+	c.DeezerARLs = list(get, "DEEZER_ARL", "")
+	return c, nil
+}
+
+func list(get Lookup, key, fallback string) []string {
+	var out []string
+	for s := range strings.SplitSeq(str(get, key, fallback), ",") {
 		if s = strings.TrimSpace(s); s != "" {
-			c.SearchOrder = append(c.SearchOrder, s)
+			out = append(out, s)
 		}
 	}
-	return c, nil
+	return out
 }
 
 func FromEnv() (Config, error) {
@@ -156,7 +164,7 @@ func FromEnv() (Config, error) {
 
 func (c Config) Warnings() []string {
 	var out []string
-	if c.DeezerARL == "" {
+	if len(c.DeezerARLs) == 0 {
 		out = append(out, "DEEZER_ARL is not set: search works, full-length playback does not")
 	}
 	if c.DeezerMasterKey == "" {

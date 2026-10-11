@@ -56,9 +56,8 @@ var (
 
 type Deezer struct {
 	http     *httpx.Client
-	arl      string
+	accounts *accountPool
 	formats  []mediaFormat
-	sessions sessionStore
 	urls     *cache.LRU[string, mediaLink]
 	isrc     *cache.LRU[string, source.Track]
 	heads    *cache.LRU[string, *head]
@@ -68,21 +67,21 @@ type Deezer struct {
 	log      *slog.Logger
 }
 
-func New(client *httpx.Client, arl string, highQuality bool, log *slog.Logger) *Deezer {
+func New(client *httpx.Client, arls []string, rotation Rotation, highQuality bool, log *slog.Logger) *Deezer {
 	formats := []mediaFormat{{streamCipher, formatMP3High}, {streamCipher, formatMP3Low}}
 	if !highQuality {
 		formats = formats[1:]
 	}
 	return &Deezer{
-		http:    client,
-		arl:     arl,
-		formats: formats,
-		urls:    cache.New[string, mediaLink](50_000, mediaURLTTL),
-		isrc:    cache.New[string, source.Track](200_000, isrcCacheTTL),
-		heads:   cache.New[string, *head](headEntries, headTTL),
-		flights: headStore{inflight: map[string]*headFlight{}},
-		layouts: newLayoutCache(),
-		log:     log.With("source", Name),
+		http:     client,
+		accounts: newAccountPool(arls, rotation),
+		formats:  formats,
+		urls:     cache.New[string, mediaLink](50_000, mediaURLTTL),
+		isrc:     cache.New[string, source.Track](200_000, isrcCacheTTL),
+		heads:    cache.New[string, *head](headEntries, headTTL),
+		flights:  headStore{inflight: map[string]*headFlight{}},
+		layouts:  newLayoutCache(),
+		log:      log.With("source", Name),
 	}
 }
 
@@ -148,7 +147,7 @@ func (d *Deezer) expand(ctx context.Context, short string) (string, error) {
 }
 
 func (d *Deezer) Warm(ctx context.Context, t source.Track) {
-	if d.arl == "" {
+	if d.accounts.empty() {
 		return
 	}
 	if _, err := d.warmHead(ctx, t.Identifier); err != nil {

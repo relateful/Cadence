@@ -49,7 +49,7 @@ func TestPreloadedPlayIsCachedToo(t *testing.T) {
 	server := &cdn{}
 	plain := pattern(headBytes*3 + 9)
 	d, track := newTestDeezer(t, server, plain)
-	d.arl = "test"
+	d.accounts = newAccountPool([]string{"test"}, RotationFailover)
 	store := withDisk(t, d)
 	readAll(t, d, track)
 	d.Warm(context.Background(), track)
