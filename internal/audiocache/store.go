@@ -280,4 +280,14 @@ func (s *Store) Stats() (files int, used, limit int64) {
 	return s.order.Len(), s.used, s.limit
 }
 
+func (s *Store) Keys() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	keys := make([]string, 0, len(s.items))
+	for key := range s.items {
+		keys = append(keys, key)
+	}
+	return keys
+}
+
 var _ io.Writer = (*Writer)(nil)

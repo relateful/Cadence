@@ -30,6 +30,7 @@ type Config struct {
 	NormalizeLufs     int
 	StateFile         string
 	DeezerARLs        []string
+	CachePeers        []string
 	DeezerRotation    string
 	DeezerHighQuality bool
 	DeezerMasterKey   string
@@ -145,6 +146,7 @@ func Load(get Lookup) (Config, error) {
 	c.NormalizeLufs = max(-30, min(-5, c.NormalizeLufs))
 	c.SearchOrder = list(get, "CADENCE_SEARCH_ORDER", "applemusic,spotify,deezer")
 	c.DeezerARLs = list(get, "DEEZER_ARL", "")
+	c.CachePeers = list(get, "CADENCE_CACHE_PEERS", "")
 	return c, nil
 }
 

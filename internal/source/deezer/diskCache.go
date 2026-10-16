@@ -19,14 +19,25 @@ const (
 	playEntries  = 200_000
 )
 
+type peerPuller interface {
+	MaybePull(keys []string)
+}
+
 type diskCache struct {
 	store *audiocache.Store
 	plays *cache.LRU[string, int]
+	peers peerPuller
 	mu    sync.Mutex
 }
 
 func (d *Deezer) UseAudioCache(store *audiocache.Store) {
 	d.disk = &diskCache{store: store, plays: cache.New[string, int](playEntries, playWindow)}
+}
+
+func (d *Deezer) UsePeers(peers peerPuller) {
+	if d.disk != nil {
+		d.disk.peers = peers
+	}
 }
 
 func cacheKey(trackID, format string) string {
@@ -37,8 +48,10 @@ func (d *Deezer) openDisk(trackID string) (io.ReadCloser, bool) {
 	if d.disk == nil {
 		return nil, false
 	}
+	keys := make([]string, 0, len(d.formats))
 	for _, f := range d.formats {
 		key := cacheKey(trackID, f.Format)
+		keys = append(keys, key)
 		if !d.disk.store.Has(key) {
 			continue
 		}
@@ -47,6 +60,9 @@ func (d *Deezer) openDisk(trackID string) (io.ReadCloser, bool) {
 		}
 	}
 	metrics.AudioCache.Inc("miss")
+	if d.disk.peers != nil {
+		d.disk.peers.MaybePull(keys)
+	}
 	return nil, false
 }
 

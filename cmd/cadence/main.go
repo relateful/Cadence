@@ -18,6 +18,7 @@ import (
 	"github.com/greed/cadence/internal/codec"
 	"github.com/greed/cadence/internal/config"
 	"github.com/greed/cadence/internal/httpx"
+	"github.com/greed/cadence/internal/peercache"
 	"github.com/greed/cadence/internal/player"
 	"github.com/greed/cadence/internal/session"
 	"github.com/greed/cadence/internal/source"
@@ -98,12 +99,17 @@ func run() error {
 		return err
 	}
 	dz := deezer.New(clients[deezer.Name], cfg.DeezerARLs, rotation, cfg.DeezerHighQuality, log)
+	var store *audiocache.Store
 	if cfg.AudioCacheDir != "" {
-		store, err := audiocache.Open(cfg.AudioCacheDir, int64(cfg.AudioCacheGB)<<30, log)
+		store, err = audiocache.Open(cfg.AudioCacheDir, int64(cfg.AudioCacheGB)<<30, log)
 		if err != nil {
 			return err
 		}
 		dz.UseAudioCache(store)
+	}
+	peers := peercache.New(cfg.CachePeers, cfg.Password, store, log)
+	if peers.Enabled() {
+		dz.UsePeers(peers)
 	}
 	resolver := source.NewResolver(dz, cfg.SearchOrder, log,
 		applemusic.New(clients[applemusic.Name], cfg.AppleToken, cfg.AppleStorefront),
@@ -144,13 +150,19 @@ func run() error {
 		deps.OnUnmeasured = func(t source.Track) { offline.Enqueue(t, false) }
 	}
 	sessions := session.NewManager(deps)
-	server := api.New(api.Deps{Password: cfg.Password, Sessions: sessions, Resolver: resolver, Registry: registry, Offline: offline, ResumeTimeout: cfg.ResumeTimeout, Bitrate: cfg.Bitrate, Log: log})
+	server := api.New(api.Deps{Password: cfg.Password, Sessions: sessions, Resolver: resolver, Registry: registry, Offline: offline, ResumeTimeout: cfg.ResumeTimeout, Bitrate: cfg.Bitrate, AudioCache: store, Log: log})
 	if cfg.StateFile != "" {
 		if rep, err := sessions.Restore(cfg.StateFile); err != nil {
 			log.Error("could not restore saved sessions", "file", cfg.StateFile, "error", err)
 		} else if rep.Sessions+rep.Skipped > 0 {
 			log.Info("restored sessions from the last shutdown", "sessions", rep.Sessions, "players", rep.Players, "expired", rep.Skipped, "ageMs", rep.Age.Milliseconds())
 		}
+	}
+
+	if peers.Enabled() {
+		peerCtx, stopPeers := context.WithCancel(context.Background())
+		defer stopPeers()
+		go peers.Run(peerCtx)
 	}
 
 	httpServer := &http.Server{Addr: cfg.Address, Handler: server.Handler(), ReadHeaderTimeout: 10 * time.Second}

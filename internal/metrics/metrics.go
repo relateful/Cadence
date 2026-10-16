@@ -60,6 +60,7 @@ var (
 	DeezerAccounts  Labeled
 	Recommendations Labeled
 	Host            Labeled
+	PeerCache       Labeled
 
 	AudioCacheBytes Counter
 	AudioCacheFiles Counter
@@ -97,6 +98,7 @@ func Write(w io.Writer, gauges []Gauge) {
 	labeled(w, "cadence_fallback_total", "Requests answered by the fallback audio source.", "kind", &Fallback)
 	labeled(w, "cadence_host_total", "DJ voice transitions: played, dropped or refused.", "outcome", &Host)
 	labeled(w, "cadence_recommendations_total", "Recommendation lists by where they came from.", "source", &Recommendations)
+	labeled(w, "cadence_peer_cache_total", "Cross-region peer cache outcomes.", "outcome", &PeerCache)
 	labeled(w, "cadence_deezer_accounts_total", "Deezer accounts rejected, and streams served by a later account.", "outcome", &DeezerAccounts)
 }
 

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/greed/cadence/internal/analysis"
+	"github.com/greed/cadence/internal/audiocache"
 	"github.com/greed/cadence/internal/metrics"
 	"github.com/greed/cadence/internal/session"
 	"github.com/greed/cadence/internal/source"
@@ -31,6 +32,7 @@ type Server struct {
 	resolver      *source.Resolver
 	registry      *analysis.Registry
 	offline       *analysis.Offline
+	audioCache    *audiocache.Store
 	resumeTimeout time.Duration
 	bitrate       int
 	started       time.Time
@@ -43,13 +45,14 @@ type Deps struct {
 	Resolver      *source.Resolver
 	Registry      *analysis.Registry
 	Offline       *analysis.Offline
+	AudioCache    *audiocache.Store
 	ResumeTimeout time.Duration
 	Bitrate       int
 	Log           *slog.Logger
 }
 
 func New(d Deps) *Server {
-	s := &Server{password: d.Password, sessions: d.Sessions, resolver: d.Resolver, registry: d.Registry, offline: d.Offline, resumeTimeout: d.ResumeTimeout, bitrate: d.Bitrate, started: time.Now(), log: d.Log.With("component", "api")}
+	s := &Server{password: d.Password, sessions: d.Sessions, resolver: d.Resolver, registry: d.Registry, offline: d.Offline, audioCache: d.AudioCache, resumeTimeout: d.ResumeTimeout, bitrate: d.Bitrate, started: time.Now(), log: d.Log.With("component", "api")}
 	d.Sessions.SetStats(s.statsSnapshotV4)
 	return s
 }
@@ -120,6 +123,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/sessions/{session}/players/{guild}/mix/host", s.auth(s.hostMix))
 	mux.HandleFunc("POST /v1/sessions/{session}/players/{guild}/mix/analyze", s.auth(s.analyzeDeck))
 	mux.HandleFunc("DELETE /v1/sessions/{session}/players/{guild}/mix", s.auth(s.cancelMix))
+	mux.HandleFunc("GET /v1/cache/index", s.auth(s.cacheIndex))
+	mux.HandleFunc("GET /v1/cache/file", s.auth(s.cacheFile))
 	return s.recoverer(mux)
 }
 
