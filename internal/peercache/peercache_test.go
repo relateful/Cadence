@@ -145,3 +145,27 @@ func TestGossipMissingPeerIsHarmless(t *testing.T) {
 	}
 	pool.MaybePull([]string{"nope-mp3_128"})
 }
+
+func TestDisabledWithoutSecret(t *testing.T) {
+	if New([]string{"http://x"}, "", newStore(t), slog.New(slog.DiscardHandler)).Enabled() {
+		t.Fatal("no shared secret should be disabled")
+	}
+}
+
+func TestPeerAuthUsesTheSharedSecret(t *testing.T) {
+	remote := newStore(t)
+	write(t, remote, "7-mp3_128", []byte("bytes"))
+	srv := peerServer(t, remote)
+	local := newStore(t)
+	pool := New([]string{srv.URL}, token, local, slog.New(slog.DiscardHandler))
+	pool.refresh(context.Background())
+	if _, ok := pool.index["7-mp3_128"]; !ok {
+		t.Fatal("authed gossip should have learned the key")
+	}
+
+	wrong := New([]string{srv.URL}, "not-the-secret", local, slog.New(slog.DiscardHandler))
+	wrong.refresh(context.Background())
+	if len(wrong.index) != 0 {
+		t.Fatal("a wrong secret must be rejected, leaving an empty index")
+	}
+}

@@ -31,6 +31,7 @@ type Config struct {
 	StateFile         string
 	DeezerARLs        []string
 	CachePeers        []string
+	CacheSecret       string
 	DeezerRotation    string
 	DeezerHighQuality bool
 	DeezerMasterKey   string
@@ -147,6 +148,7 @@ func Load(get Lookup) (Config, error) {
 	c.SearchOrder = list(get, "CADENCE_SEARCH_ORDER", "applemusic,spotify,deezer")
 	c.DeezerARLs = list(get, "DEEZER_ARL", "")
 	c.CachePeers = list(get, "CADENCE_CACHE_PEERS", "")
+	c.CacheSecret = str(get, "CADENCE_CACHE_SECRET", "")
 	return c, nil
 }
 
@@ -174,6 +176,9 @@ func (c Config) Warnings() []string {
 	}
 	if c.SpotifyID == "" || c.SpotifySecret == "" {
 		out = append(out, "SPOTIFY_CLIENT_ID/SECRET are not set: Spotify links will not resolve")
+	}
+	if len(c.CachePeers) > 0 && (c.CacheSecret == "" || c.AudioCacheDir == "") {
+		out = append(out, "CADENCE_CACHE_PEERS is set but the peer cache is off: it also needs CADENCE_CACHE_SECRET and CADENCE_AUDIO_CACHE_DIR")
 	}
 	return out
 }

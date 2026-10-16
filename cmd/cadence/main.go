@@ -107,7 +107,7 @@ func run() error {
 		}
 		dz.UseAudioCache(store)
 	}
-	peers := peercache.New(cfg.CachePeers, cfg.Password, store, log)
+	peers := peercache.New(cfg.CachePeers, cfg.CacheSecret, store, log)
 	if peers.Enabled() {
 		dz.UsePeers(peers)
 	}
@@ -150,7 +150,7 @@ func run() error {
 		deps.OnUnmeasured = func(t source.Track) { offline.Enqueue(t, false) }
 	}
 	sessions := session.NewManager(deps)
-	server := api.New(api.Deps{Password: cfg.Password, Sessions: sessions, Resolver: resolver, Registry: registry, Offline: offline, ResumeTimeout: cfg.ResumeTimeout, Bitrate: cfg.Bitrate, AudioCache: store, Log: log})
+	server := api.New(api.Deps{Password: cfg.Password, Sessions: sessions, Resolver: resolver, Registry: registry, Offline: offline, ResumeTimeout: cfg.ResumeTimeout, Bitrate: cfg.Bitrate, AudioCache: store, CacheSecret: cfg.CacheSecret, Log: log})
 	if cfg.StateFile != "" {
 		if rep, err := sessions.Restore(cfg.StateFile); err != nil {
 			log.Error("could not restore saved sessions", "file", cfg.StateFile, "error", err)

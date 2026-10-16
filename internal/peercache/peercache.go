@@ -55,7 +55,9 @@ func New(peers []string, token string, store *audiocache.Store, log *slog.Logger
 	}
 }
 
-func (p *Pool) Enabled() bool { return p != nil && len(p.peers) > 0 && p.store != nil }
+func (p *Pool) Enabled() bool {
+	return p != nil && len(p.peers) > 0 && p.store != nil && p.token != ""
+}
 
 func (p *Pool) Run(ctx context.Context) {
 	if !p.Enabled() {

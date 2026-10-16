@@ -33,6 +33,7 @@ type Server struct {
 	registry      *analysis.Registry
 	offline       *analysis.Offline
 	audioCache    *audiocache.Store
+	cacheSecret   string
 	resumeTimeout time.Duration
 	bitrate       int
 	started       time.Time
@@ -46,13 +47,14 @@ type Deps struct {
 	Registry      *analysis.Registry
 	Offline       *analysis.Offline
 	AudioCache    *audiocache.Store
+	CacheSecret   string
 	ResumeTimeout time.Duration
 	Bitrate       int
 	Log           *slog.Logger
 }
 
 func New(d Deps) *Server {
-	s := &Server{password: d.Password, sessions: d.Sessions, resolver: d.Resolver, registry: d.Registry, offline: d.Offline, audioCache: d.AudioCache, resumeTimeout: d.ResumeTimeout, bitrate: d.Bitrate, started: time.Now(), log: d.Log.With("component", "api")}
+	s := &Server{password: d.Password, sessions: d.Sessions, resolver: d.Resolver, registry: d.Registry, offline: d.Offline, audioCache: d.AudioCache, cacheSecret: d.CacheSecret, resumeTimeout: d.ResumeTimeout, bitrate: d.Bitrate, started: time.Now(), log: d.Log.With("component", "api")}
 	d.Sessions.SetStats(s.statsSnapshotV4)
 	return s
 }
@@ -99,6 +101,21 @@ func (s *Server) auth(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+func (s *Server) authCache(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		got := r.Header.Get("Authorization")
+		ok := s.authorized(r)
+		if !ok && s.cacheSecret != "" {
+			ok = subtle.ConstantTimeCompare([]byte(got), []byte(s.cacheSecret)) == 1
+		}
+		if !ok {
+			fail(w, r, http.StatusUnauthorized, "missing or wrong Authorization header")
+			return
+		}
+		next(w, r)
+	}
+}
+
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/websocket", s.websocket(session.ProtocolV1))
@@ -123,8 +140,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/sessions/{session}/players/{guild}/mix/host", s.auth(s.hostMix))
 	mux.HandleFunc("POST /v1/sessions/{session}/players/{guild}/mix/analyze", s.auth(s.analyzeDeck))
 	mux.HandleFunc("DELETE /v1/sessions/{session}/players/{guild}/mix", s.auth(s.cancelMix))
-	mux.HandleFunc("GET /v1/cache/index", s.auth(s.cacheIndex))
-	mux.HandleFunc("GET /v1/cache/file", s.auth(s.cacheFile))
+	mux.HandleFunc("GET /v1/cache/index", s.authCache(s.cacheIndex))
+	mux.HandleFunc("GET /v1/cache/file", s.authCache(s.cacheFile))
 	return s.recoverer(mux)
 }
 
