@@ -1,4 +1,4 @@
-FROM golang:1.26-bookworm AS build
+FROM golang:1.27-bookworm AS build
 ARG LIBDAVE_VERSION=v1.1.0
 ARG GODAVE_VERSION=v0.3.0
 RUN apt-get update && apt-get install -y --no-install-recommends libopus-dev pkg-config curl unzip ca-certificates && rm -rf /var/lib/apt/lists/*
