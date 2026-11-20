@@ -21,13 +21,10 @@ const (
 	syncSearch       = 32
 	seekPrefixBytes  = 4096
 	layoutEntries    = 50_000
-	mpeg1Layer3SPF   = 1152
+	mpeg1Layer3SPF   = codec.MP3SamplesPerFrame
 )
 
 var (
-	bitratesV1L3 = [16]int{0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 0}
-	ratesV1      = [4]int{44100, 48000, 32000, 0}
-
 	errNotCBR      = errors.New("stream is not constant-bitrate mpeg-1 layer iii")
 	errNoFrameSync = errors.New("no frame header at the computed offset")
 )
@@ -43,52 +40,26 @@ type mp3Layout struct {
 	frameBytes float64
 }
 
-type frameHeader struct {
-	bitrate, rate, size int
-	mono, crc           bool
-}
-
-func parseFrameHeader(b []byte) (frameHeader, bool) {
-	if len(b) < 4 || b[0] != 0xFF || b[1]&0xFE != 0xFA {
-		return frameHeader{}, false
-	}
-	br, sr := bitratesV1L3[b[2]>>4], ratesV1[(b[2]>>2)&3]
-	if br == 0 || sr == 0 {
-		return frameHeader{}, false
-	}
-	pad := int(b[2]>>1) & 1
-	return frameHeader{bitrate: br, rate: sr, size: 144*br*1000/sr + pad, mono: b[3]>>6 == 3, crc: b[1]&1 == 0}, true
-}
-
 func parseLayout(p []byte) (mp3Layout, error) {
-	start := 0
-	if len(p) >= 10 && string(p[:3]) == "ID3" {
-		start = 10 + (int(p[6]&0x7F)<<21 | int(p[7]&0x7F)<<14 | int(p[8]&0x7F)<<7 | int(p[9]&0x7F))
-		if p[5]&0x10 != 0 {
-			start += 10
-		}
-	}
+	start := codec.ID3Size(p)
 	if start+40 > len(p) {
 		return mp3Layout{}, fmt.Errorf("%w: header beyond the probed %d bytes", errNotCBR, len(p))
 	}
-	h, ok := parseFrameHeader(p[start:])
+	h, ok := codec.ParseMP3Frame(p[start:])
 	if !ok {
 		return mp3Layout{}, errNotCBR
 	}
-	side := 32
-	if h.mono {
-		side = 17
+	tag := start + h.TagOffset()
+	if tag+4 > len(p) {
+		return mp3Layout{}, fmt.Errorf("%w: header beyond the probed %d bytes", errNotCBR, len(p))
 	}
-	if h.crc {
-		side += 2
-	}
-	if tag := string(p[start+4+side : start+8+side]); tag == "Xing" {
+	if string(p[tag:tag+4]) == "Xing" {
 		return mp3Layout{}, fmt.Errorf("%w: xing vbr header", errNotCBR)
 	}
-	if next, ok := parseFrameHeader(p[min(len(p), start+h.size):]); !ok || next.bitrate != h.bitrate || next.rate != h.rate {
+	if next, ok := codec.ParseMP3Frame(p[min(len(p), start+h.Size):]); !ok || next.Bitrate != h.Bitrate || next.Rate != h.Rate {
 		return mp3Layout{}, fmt.Errorf("%w: second frame does not match the first", errNotCBR)
 	}
-	return mp3Layout{dataStart: int64(start), bitrate: h.bitrate, rate: h.rate, frameBytes: 144 * float64(h.bitrate) * 1000 / float64(h.rate)}, nil
+	return mp3Layout{dataStart: int64(start), bitrate: h.Bitrate, rate: h.Rate, frameBytes: h.FrameBytes()}, nil
 }
 
 func (l mp3Layout) offset(frame int64) int64 {
@@ -101,11 +72,11 @@ func (l mp3Layout) findFrame(buf []byte, at int) (int, bool) {
 			if pos < 0 || pos+4 > len(buf) {
 				continue
 			}
-			h, ok := parseFrameHeader(buf[pos:])
-			if !ok || h.bitrate != l.bitrate || h.rate != l.rate {
+			h, ok := codec.ParseMP3Frame(buf[pos:])
+			if !ok || h.Bitrate != l.bitrate || h.Rate != l.rate {
 				continue
 			}
-			if next, ok := parseFrameHeader(buf[min(len(buf), pos+h.size):]); ok && next.bitrate == l.bitrate && next.rate == l.rate {
+			if next, ok := codec.ParseMP3Frame(buf[min(len(buf), pos+h.Size):]); ok && next.Bitrate == l.bitrate && next.Rate == l.rate {
 				return pos, true
 			}
 		}

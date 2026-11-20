@@ -141,3 +141,11 @@ func TestVBRTrackFallsBackToAFullStream(t *testing.T) {
 		t.Fatal("fallback did not return the whole track")
 	}
 }
+
+func TestParseLayoutRefusesAProbeEndingInsideTheTag(t *testing.T) {
+	head := make([]byte, 41)
+	copy(head, []byte{0xFF, 0xFA, 0x90, 0x64})
+	if _, err := parseLayout(head); err == nil {
+		t.Fatal("a 41-byte probe with a crc frame parsed")
+	}
+}
