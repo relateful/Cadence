@@ -126,3 +126,14 @@ func TestDeezerARLOfOnlyBlanksCountsAsUnset(t *testing.T) {
 		t.Fatal("a list of only blanks must still warn that no ARL is set")
 	}
 }
+
+func TestFileSourcesAreOffUnlessSet(t *testing.T) {
+	off, _ := Load(env(map[string]string{"CADENCE_PASSWORD": "s3cret"}))
+	if off.LocalDir != "" || len(off.HTTPHosts) != 0 {
+		t.Fatalf("file sources on by default: %q %q", off.LocalDir, off.HTTPHosts)
+	}
+	on, _ := Load(env(map[string]string{"CADENCE_PASSWORD": "s3cret", "CADENCE_LOCAL_DIR": " /music ", "CADENCE_HTTP_HOSTS": "cdn.discordapp.com, ,media.example.com"}))
+	if on.LocalDir != "/music" || !slices.Equal(on.HTTPHosts, []string{"cdn.discordapp.com", "media.example.com"}) {
+		t.Fatalf("%q %q", on.LocalDir, on.HTTPHosts)
+	}
+}

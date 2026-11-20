@@ -45,6 +45,8 @@ type Config struct {
 	SoundCloudEnabled bool
 	SoundCloudID      string
 	SoundCloudProxy   string
+	LocalDir          string
+	HTTPHosts         []string
 }
 
 type Lookup func(string) (string, bool)
@@ -99,6 +101,7 @@ func Load(get Lookup) (Config, error) {
 		SoundCloudEnabled: flag(get, "SOUNDCLOUD_ENABLED", true),
 		SoundCloudID:      str(get, "SOUNDCLOUD_CLIENT_ID", ""),
 		SoundCloudProxy:   str(get, "SOUNDCLOUD_PROXY", ""),
+		LocalDir:          str(get, "CADENCE_LOCAL_DIR", ""),
 	}
 	if c.Password == "" || c.Password == insecurePassword {
 		return Config{}, errors.New("CADENCE_PASSWORD must be set to a non-default value")
@@ -149,6 +152,7 @@ func Load(get Lookup) (Config, error) {
 	c.DeezerARLs = list(get, "DEEZER_ARL", "")
 	c.CachePeers = list(get, "CADENCE_CACHE_PEERS", "")
 	c.CacheSecret = str(get, "CADENCE_CACHE_SECRET", "")
+	c.HTTPHosts = list(get, "CADENCE_HTTP_HOSTS", "")
 	return c, nil
 }
 

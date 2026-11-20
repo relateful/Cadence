@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -24,6 +25,7 @@ import (
 	"github.com/greed/cadence/internal/source"
 	"github.com/greed/cadence/internal/source/applemusic"
 	"github.com/greed/cadence/internal/source/deezer"
+	"github.com/greed/cadence/internal/source/files"
 	"github.com/greed/cadence/internal/source/soundcloud"
 	"github.com/greed/cadence/internal/source/spotify"
 	"github.com/greed/cadence/internal/voice"
@@ -117,6 +119,17 @@ func run() error {
 	)
 	if cfg.SoundCloudEnabled {
 		resolver.UseFallback(soundcloud.New(clients[soundcloud.Name], cfg.SoundCloudID, soundcloud.DefaultEndpoints, log))
+	}
+	if cfg.LocalDir != "" {
+		local, err := files.NewLocal(cfg.LocalDir, log)
+		if err != nil {
+			return fmt.Errorf("CADENCE_LOCAL_DIR: %w", err)
+		}
+		resolver.UseDirect(local)
+	}
+	if len(cfg.HTTPHosts) > 0 {
+		hosts := files.NewHosts(cfg.HTTPHosts)
+		resolver.UseDirect(files.NewRemote(httpx.NewPublic(files.RemoteName, log, hosts.Allows), hosts))
 	}
 
 	registry := analysis.NewRegistry()

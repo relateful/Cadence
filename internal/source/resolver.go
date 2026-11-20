@@ -47,6 +47,7 @@ type Resolver struct {
 	searchOrder []string
 	audio       Playable
 	fallback    Playable
+	direct      map[string]Playable
 	mirrors     *cache.LRU[string, mirrorEntry]
 	loads       *cache.LRU[string, LoadResult]
 	mu          sync.Mutex
@@ -61,6 +62,7 @@ func NewResolver(audio Playable, searchOrder []string, log *slog.Logger, sources
 		sources:     map[string]Source{},
 		searchOrder: searchOrder,
 		audio:       audio,
+		direct:      map[string]Playable{},
 		mirrors:     cache.New[string, mirrorEntry](mirrorCacheSize, mirrorCacheTTL),
 		loads:       cache.New[string, LoadResult](loadCacheSize, loadCacheTTL),
 		inflight:    map[string]*flight{},
@@ -128,16 +130,16 @@ func (r *Resolver) Load(ctx context.Context, identifier string) LoadResult {
 }
 
 func (r *Resolver) load(ctx context.Context, identifier string) LoadResult {
-	if isURL(identifier) {
-		for _, s := range r.ordered {
-			if s.MatchesURL(identifier) {
-				res, err := s.LoadURL(ctx, identifier)
-				if err != nil {
-					return LoadResult{Type: LoadError, Error: Classify(s.Name(), err)}
-				}
-				return res
+	for _, s := range r.ordered {
+		if s.MatchesURL(identifier) {
+			res, err := s.LoadURL(ctx, identifier)
+			if err != nil {
+				return LoadResult{Type: LoadError, Error: Classify(s.Name(), err)}
 			}
+			return res
 		}
+	}
+	if isURL(identifier) {
 		return LoadResult{Type: LoadError, Error: Fail(SeverityCommon, "", "no source handles this link", nil)}
 	}
 	if isrc, ok := isrcIdentifier(identifier); ok {
@@ -223,6 +225,9 @@ func (r *Resolver) Playable(ctx context.Context, t Track) (Track, error) {
 		return Track{}, Fail(SeverityFault, "", "no audio source is configured", nil)
 	}
 	if t.Source == r.audio.Name() || (r.fallback != nil && t.Source == r.fallback.Name()) {
+		return t, nil
+	}
+	if _, ok := r.direct[t.Source]; ok {
 		return t, nil
 	}
 	key := t.Key()
@@ -323,12 +328,23 @@ func (r *Resolver) UseFallback(p Playable) {
 	}
 }
 
+func (r *Resolver) UseDirect(p Playable) {
+	r.direct[p.Name()] = p
+	if _, exists := r.sources[p.Name()]; !exists {
+		r.sources[p.Name()] = p
+		r.ordered = append(r.ordered, p)
+	}
+}
+
 func (r *Resolver) playableFor(t Track) (Playable, error) {
 	switch {
 	case r.audio != nil && t.Source == r.audio.Name():
 		return r.audio, nil
 	case r.fallback != nil && t.Source == r.fallback.Name():
 		return r.fallback, nil
+	}
+	if p, ok := r.direct[t.Source]; ok {
+		return p, nil
 	}
 	return nil, Fail(SeverityFault, t.Source, "no audio source plays this track", nil)
 }

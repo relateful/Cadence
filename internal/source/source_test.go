@@ -305,3 +305,51 @@ func TestRecommendationsDropFanEdits(t *testing.T) {
 		t.Fatalf("got %+v, want only the original", res.Tracks)
 	}
 }
+
+type fakeDirect struct {
+	opened atomic.Int32
+}
+
+func (d *fakeDirect) Name() string                                    { return "direct" }
+func (d *fakeDirect) SearchPrefix() string                            { return "drsearch:" }
+func (d *fakeDirect) MatchesURL(u string) bool                        { return u == "dr:song.mp3" }
+func (d *fakeDirect) Search(context.Context, string) ([]Track, error) { return nil, nil }
+func (d *fakeDirect) Track(context.Context, string) (Track, error)    { return d.track(), nil }
+func (d *fakeDirect) Warm(context.Context, Track)                     {}
+func (d *fakeDirect) track() Track {
+	return Track{Source: "direct", Identifier: "song.mp3", Title: "Song"}
+}
+
+func (d *fakeDirect) LoadURL(context.Context, string) (LoadResult, error) {
+	return Single(d.track()), nil
+}
+
+func (d *fakeDirect) Open(context.Context, Track) (Stream, error) {
+	d.opened.Add(1)
+	return Stream{}, nil
+}
+
+func TestDirectSourcesLoadAndPlayWithoutMirroring(t *testing.T) {
+	audio := &fakeAudio{}
+	direct := &fakeDirect{}
+	r := NewResolver(audio, []string{"fake"}, logger())
+	r.UseDirect(direct)
+
+	res := r.Load(context.Background(), "dr:song.mp3")
+	if res.Type != LoadTrack || res.Tracks[0].Source != "direct" {
+		t.Fatalf("a non-http link was not routed to its source: %+v", res)
+	}
+	got, err := r.Playable(context.Background(), res.Tracks[0])
+	if err != nil || got != res.Tracks[0] {
+		t.Fatalf("a direct track was mirrored: %+v %v", got, err)
+	}
+	if audio.searches.Load() != 0 {
+		t.Fatal("a direct track searched the audio source")
+	}
+	if _, err := r.Open(context.Background(), got, 0); err != nil || direct.opened.Load() != 1 {
+		t.Fatalf("a direct track did not open on its own source: %v", err)
+	}
+	if res := r.Load(context.Background(), "https://unknown.example/a.mp3"); res.Type != LoadError {
+		t.Fatalf("an unhandled http link did not fail: %+v", res)
+	}
+}

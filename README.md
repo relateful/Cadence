@@ -40,7 +40,7 @@ We ran Lavalink, and then our own fork of it, in production for a long time. Cad
 - 🎧 **Discord voice done properly**: gateway v8, `seq_ack` resume, AES-256-GCM / XChaCha20 transport, and **DAVE end-to-end encryption** through Discord's own `libdave`
 - ⏱️ **Wire clock**: frame-accurate positions measured at the socket, correct under every speed and tempo filter, with clock-sync and playout-delay support
 - 🎚️ **Two-deck mixer**: pre-buffered deck B, beat-aligned armed crossfades, equal-power or linear curves, bass swap, high-pass sweeps, loudness matching, tempo ramps
-- 🔍 **Smart sources**: Deezer playback with SoundCloud as a fallback, and Spotify and Apple Music links and search mirrored to the **exact recording** by ISRC
+- 🔍 **Smart sources**: Deezer playback with SoundCloud as a fallback, your own MP3 files and links, and Spotify and Apple Music links and search mirrored to the **exact recording** by ISRC
 - 🧠 **Track analysis**: BPM, meter, downbeats, phrase grid, Camelot key, sections, vocals, intro and outro regions, and EBU R128 loudness, compatible with greed's automix fingerprints
 - 🎛️ **Filters**: 15-band equalizer, timescale (speed, pitch, rate), karaoke, low-pass, tremolo, vibrato, rotation and **reverb**, all of which **glide** into a new setting instead of jumping
 - 🔁 **Session resume**: players keep running while your bot reconnects, and missed events are replayed
@@ -110,6 +110,8 @@ Everything is set through environment variables. See [`.env.example`](.env.examp
 | `SOUNDCLOUD_ENABLED` | `true` | Use SoundCloud when Deezer has no match |
 | `SOUNDCLOUD_CLIENT_ID` | scraped | Optional fixed SoundCloud client id |
 | `DEEZER_PROXY`, `SPOTIFY_PROXY`, `APPLE_MUSIC_PROXY`, `SOUNDCLOUD_PROXY` | | Per-source HTTP proxy; a failed proxy falls back to direct for 60 s |
+| `CADENCE_LOCAL_DIR` | off | Directory of MP3 files to play with `local:` and search with `localsearch:` |
+| `CADENCE_HTTP_HOSTS` | off | Hosts MP3 links may be played from, e.g. `cdn.discordapp.com`. Subdomains count, `*` allows any public host |
 
 ## Sources
 
@@ -119,6 +121,10 @@ Everything is set through environment variables. See [`.env.example`](.env.examp
 | **Apple Music** | `amsearch:` | songs, albums, playlists, artists | Mirrored to Deezer |
 | **Spotify** | `spsearch:` | tracks, albums, playlists, `spotify:` URIs, short links | Mirrored to Deezer |
 | **SoundCloud** | `scsearch:` | tracks, sets, short links | ✅ fallback, used only when Deezer has no match |
+| **Local files** | `localsearch:` | `local:<path>`, `file://` paths inside `CADENCE_LOCAL_DIR` | ✅ MP3 |
+| **HTTP** | | direct MP3 links on a host in `CADENCE_HTTP_HOSTS` | ✅ MP3 |
+
+**Your own files.** Local files and HTTP links play as they are, without mirroring. Title, artist and album come from the file's ID3 tags (the file name when there are none), and the length from its Xing header or its size. Only MPEG-1 Layer III MP3 plays. A local path is relative to `CADENCE_LOCAL_DIR`, so the same track only plays on nodes that have the file. HTTP links never reach private, loopback or link-local addresses, and a redirect must stay on an allowed host. A Discord attachment link stops working once Discord expires it.
 
 **How mirroring works.** When a Spotify or Apple track plays, Cadence takes its **ISRC**, the unique ID of a recording, and looks up that exact recording on Deezer. If there's no ISRC match, it falls back to a scored text search. That search penalizes remixes, live versions, sped-up versions and anything else that differs from what was requested, and rejects candidates whose length is off by more than 5 seconds. Matches are cached for 14 days and concurrent lookups are de-duplicated, so a song is resolved once.
 
